@@ -102,6 +102,9 @@ const BY_TOOL: Rule[] = [
   { server: /^jarvis_pc$/, tool: /see[ _]screen/, lines: ['Sehe nach.', 'Einen Blick, Sir.'] },
   { server: /^jarvis_pc$/, tool: /system[ _]status/, lines: ['Prüfe das System.'] },
   { server: /^jarvis_memory$/, lines: ['Notiere.', 'Einen Moment.'] },
+  { server: /^jarvis_servers$/, tool: /server[ _]logs/, lines: ['Lese das Protokoll.', 'Gehe die Logs durch.'] },
+  { server: /^jarvis_servers$/, tool: /server[ _](run|restart)/, lines: ['Wird ausgeführt.', 'Führe aus.'] },
+  { server: /^jarvis_servers$/, lines: ['Frage den Server ab.', 'Prüfe den Server.'] },
   // Video sits above image because higgsfield and palmier both do either, so
   // the verb in the tool name is the only thing separating them — a rule on the
   // server alone would send every generate_video to "Rendere."

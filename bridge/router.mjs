@@ -90,10 +90,22 @@ function byRule(text) {
     return { tier: 'fable', reason: 'override', text: rest || text }
   }
 
-  if (OPEN_APP.test(text) && words(text) <= 8) return { tier: 'haiku', reason: 'rule:open', text }
+  // "Starte Spotify" is an app; "starte den Dienst neu" or anything with a
+  // server in it is not, and deserves the vote.
+  if (OPEN_APP.test(text) && words(text) <= 8 && !/\b(neu|server|dienst|service|container)\b/i.test(text)) {
+    return { tier: 'haiku', reason: 'rule:open', text }
+  }
   if (SMALL_TALK.test(text) && words(text) <= 6) return { tier: 'haiku', reason: 'rule:smalltalk', text }
+  // A short question with none of the heavy words is haiku's without a vote:
+  // the vote cost more than a second on exactly the turns that should feel
+  // instant, and haiku answers "wie wird das Wetter" as well as anything.
+  if (words(text) <= 7 && !HEAVY.test(text)) return { tier: 'haiku', reason: 'rule:short', text }
   return null
 }
+
+/** Words that mean a short question still deserves the vote. */
+const HEAVY =
+  /\b(code|skript|script|programm(ier)?|lua|python|javascript|java|docker|ssh|server|log|logs|fehler|error|bug|absturz|crash|architektur|analys|plan|strategie|vergleich|erklär|warum|beweis|komplex|server-?wächter)\w*/i
 
 // ---------------------------------------------------------------------------
 // The vote

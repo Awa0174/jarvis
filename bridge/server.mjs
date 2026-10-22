@@ -21,6 +21,7 @@ import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
 import { pcServer, warmPc } from './pc.mjs'
+import { serversServer, loadServers, SERVERS_FILE } from './servers.mjs'
 import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
@@ -325,6 +326,13 @@ function classifyTool(name) {
     // open_path refuses executables — see the note at the top of pc.mjs.
     if (server === 'jarvis_pc') return 'read'
 
+    // The user's servers: status and logs read, a command or a restart
+    // changes something and goes through the card with the command on it.
+    if (server === 'jarvis_servers') {
+      const tool = mcpToolOf(name)
+      return tool === 'server_run' || tool === 'server_restart' ? 'write' : 'read'
+    }
+
     const tool = mcpToolOf(name)
     if (server === 'jarvis_chrome') {
       return CHROME_WRITE_TOOLS.has(tool) ? 'write' : 'read'
@@ -564,7 +572,19 @@ Der Rechner (die jarvis_pc Werkzeuge), ohne Bestätigung, denn sie verändern ni
   Beschreibe, was zählt, nicht jedes Detail, und leg das Bild mit der
   zurückgegebenen Adresse als Blade (kind image) ab.
 - system_status für Fragen nach Auslastung, Speicher, Platz, Akku, Laufzeit.
-- Für Shell-Befehle bleibt es bei der Bestätigung oben.`
+- Für Shell-Befehle bleibt es bei der Bestätigung oben.
+
+Seine Server (die jarvis_servers Werkzeuge):
+- server_list nennt die eingerichteten Server. Fragt er nach „dem Server“ und
+  es gibt nur einen, nimm den.
+- server_status und server_logs lesen nur und brauchen keine Bestätigung.
+  Fasse ein Log zusammen, statt es vorzulesen: was ist passiert, seit wann,
+  wie oft, und was es wahrscheinlich bedeutet. Zahlen und Zeiten gesprochen.
+  Bei Fehlern erst grep „error“ oder „warn“, dann das Umfeld.
+- server_run und server_restart verändern etwas: erst erklären, was genau,
+  warum und was schiefgehen kann, dann aufrufen; das Interface holt sein Ja.
+  Nie einen Neustart vorschlagen, bevor du den Status und das Log gesehen hast.
+- Zugangsdaten nennst du nie, auch nicht Hostnamen, außer er fragt.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1219,6 +1239,14 @@ if (TTS_ENGINE === 'piper') {
 }
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] memory ${MEMORY_FILE}`)
+{
+  const servers = loadServers()
+  console.log(
+    servers.length
+      ? `[jarvis] servers ${servers.map((s) => `${s.name} (${s.kind})`).join(', ')} from ${SERVERS_FILE}`
+      : `[jarvis] servers: none — describe them in ${SERVERS_FILE} (template: servers.example.json)`,
+  )
+}
 warmPc()
 if (whisperInstalled()) {
   // Loads the model, which takes a few seconds; /health reports stt only
@@ -1487,6 +1515,8 @@ wss.on('connection', (socket) => {
         jarvis_memory: memoryServer(),
         // The machine itself: programs, files, the screen, the load.
         jarvis_pc: pcServer(),
+        // His servers, from ~/.jarvis/servers.json.
+        jarvis_servers: serversServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

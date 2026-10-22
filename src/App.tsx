@@ -72,6 +72,9 @@ const newId = () =>
 const BARE_NAME = new RegExp(`^${PREFIX}\\s*${NAME}[\\s,.!?]*$`, 'i')
 /** A leading vocative on a real command: "Jarvis, wie wird das Wetter". */
 const LEADING_NAME = new RegExp(`^${PREFIX}\\s*${NAME}\\b[\\s,.:!?-]*`, 'i')
+/** A stop word on its own, possibly with a "nein" in front. */
+const STOP_WORD =
+  /^(?:nein[,\s]*)?(?:stopp?|halt|warte|abbrechen|abbruch|sei still|leise|ruhe|aufhören|hör auf|vergiss es)[\s.!?]*$/i
 /** Spoken orders to stand down. Short phrases only, so a sentence that merely
  *  mentions sleep ("wann soll ich schlafen gehen") is not one of them. */
 const STANDBY =
@@ -329,6 +332,14 @@ export default function App() {
     }
     const said = text.replace(LEADING_NAME, '').trim()
     if (!said) {
+      listen(AWAIT_SPEECH_MS)
+      return
+    }
+
+    // A bare "Stopp." has done its work by the time it is transcribed — the
+    // barge-in already cut him off. It is not a question for the model.
+    if (STOP_WORD.test(said)) {
+      silence()
       listen(AWAIT_SPEECH_MS)
       return
     }

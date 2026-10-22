@@ -1,0 +1,43 @@
+{
+  "_": "Kopiere diese Datei nach ~/.jarvis/servers.json (außerhalb des Repos) und trage deine Server ein. Schlüssel liegen in ~/.ssh, Passwörter gibt es nicht: nur Schlüssel-Login.",
+  "servers": [
+    {
+      "name": "pc",
+      "kind": "local",
+      "note": "Dieser Rechner",
+      "services": ["srcds"],
+      "logs": {
+        "system": "eventlog:System",
+        "apps": "eventlog:Application"
+      }
+    },
+    {
+      "name": "gmod",
+      "kind": "ssh",
+      "host": "203.0.113.10",
+      "user": "root",
+      "port": 22,
+      "key": "~/.ssh/id_ed25519",
+      "note": "Garry's Mod Server bei Hoster XY",
+      "services": ["gmod", "nginx"],
+      "docker": false,
+      "logs": {
+        "gmod": "journal:gmod",
+        "console": "/home/gmod/server/console.log",
+        "nginx": "/var/log/nginx/error.log"
+      }
+    },
+    {
+      "name": "nanos",
+      "kind": "ssh",
+      "host": "203.0.113.11",
+      "user": "ubuntu",
+      "key": "~/.ssh/id_ed25519",
+      "docker": true,
+      "services": [],
+      "logs": {
+        "nanos": "docker:nanos-world"
+      }
+    }
+  ]
+}
