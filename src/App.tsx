@@ -27,6 +27,7 @@ import {
   watchConnection,
   watchConfirm,
   watchConfirmEnd,
+  watchModel,
   connectedLabels,
   usingBridge,
   type Msg,
@@ -398,6 +399,9 @@ export default function App() {
     watchConfirmEnd((id) => {
       if (store.getState().confirm?.id === id) store.getState().setConfirm(null)
     })
+    // Which Claude is answering. Shown in the footer so a slow turn can be
+    // read as "that went to the big model" rather than "something is stuck".
+    watchModel((tier) => store.getState().setModel(tier))
 
     /**
      * JARVIS asking to see something.

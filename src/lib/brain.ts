@@ -101,6 +101,11 @@ export function answerConfirm(id: string, approved: boolean, via: ConfirmVia): v
   if (usingBridge) bridge.answerConfirm(id, approved, via)
 }
 
+/** The bridge's router announces which model took the question. */
+export function watchModel(fn: (tier: string, model: string) => void): void {
+  if (usingBridge) bridge.watchModel(fn)
+}
+
 /**
  * Barge-in. Stops the answer on both paths and settles whatever `ask()` call
  * is outstanding, so the caller's await always returns — on the bridge by

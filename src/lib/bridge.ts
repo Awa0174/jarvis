@@ -39,6 +39,14 @@ type Frame = {
   label?: string
   detail?: string
   explanation?: string
+  tier?: string
+  model?: string
+}
+
+/** Which model the router chose for the question in flight. */
+let onModel: ((tier: string, model: string) => void) | null = null
+export function watchModel(fn: (tier: string, model: string) => void) {
+  onModel = fn
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -249,6 +257,8 @@ function dispatch(ws: WebSocket) {
       })
     } else if (msg.type === 'confirm_end' && msg.id) {
       onConfirmEnd?.(msg.id)
+    } else if (msg.type === 'model' && msg.tier) {
+      onModel?.(msg.tier, msg.model ?? '')
     }
   })
 }

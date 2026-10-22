@@ -156,6 +156,7 @@ export function Hud() {
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
   const voice = useStore((s) => s.voice)
+  const model = useStore((s) => s.model)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
@@ -317,11 +318,17 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
+          sag <b>„hey jarvis“</b> · <kbd>Leertaste</kbd> reden · <kbd>G</kbd> hände
           {voice && (
             <>
               {' · '}
-              <kbd>V</kbd> voice: {voice.replace(/\(.*?\)/g, '').trim()}
+              <kbd>V</kbd> stimme: {voice.replace(/\(.*?\)/g, '').trim()}
+            </>
+          )}
+          {model && (
+            <>
+              {' · '}
+              modell: <b>{model}</b>
             </>
           )}
         </span>

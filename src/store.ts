@@ -230,6 +230,8 @@ type State = {
   phase: Phase
   /** The action waiting on the user, or null. */
   confirm: ConfirmRequest | null
+  /** Which model the router picked for the last question, for the HUD. */
+  model: string
   /** 0..1 mic loudness, drives the reactor pulse. */
   level: number
   /** What JARVIS is currently reading aloud or has just said. */
@@ -260,6 +262,7 @@ type State = {
   ui: UiState
 
   setConfirm: (c: ConfirmRequest | null) => void
+  setModel: (m: string) => void
   setVoice: (v: string) => void
   setGestures: (on: boolean) => void
   setLooking: (why: string | null) => void
@@ -292,6 +295,7 @@ type State = {
 export const useStore = create<State>((set) => ({
   phase: 'offline',
   confirm: null,
+  model: '',
   level: 0,
   caption: '',
   turns: [],
@@ -309,6 +313,7 @@ export const useStore = create<State>((set) => ({
   ui: defaultUi(),
 
   setConfirm: (confirm) => set({ confirm }),
+  setModel: (model) => set({ model }),
   setVoice: (voice) => set({ voice }),
   setGestures: (gestures) => set({ gestures }),
   setLooking: (looking) => set({ looking }),

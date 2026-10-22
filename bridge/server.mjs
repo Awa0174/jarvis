@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { piperSpeak, piperAvailable, piperInstalled, piperStop, PIPER_VOICE } from './speech.mjs'
+import { route, warmRouter, closeRouter, TIERS, DEFAULT_TIER, ROUTER_ENABLED, ROUTER_MODEL } from './router.mjs'
 
 /**
  * Settings from a `.env` in the project root, so nothing has to be typed into
@@ -131,7 +132,7 @@ const CONFIRM_TIMEOUT_MS = Number(process.env.JARVIS_CONFIRM_TIMEOUT_MS ?? 90_00
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
  * — claude-sonnet-5 is noticeably snappier on camera if Opus feels slow.
  */
-const MODEL = process.env.JARVIS_MODEL ?? 'claude-opus-5'
+const MODEL = process.env.JARVIS_MODEL ?? TIERS[DEFAULT_TIER]
 
 /**
  * How hard the model thinks before answering.
@@ -1166,6 +1167,15 @@ if (TTS_ENGINE === 'piper') {
   )
 }
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
+if (ROUTER_ENABLED) {
+  console.log(
+    `[router] on — votes by ${ROUTER_MODEL}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,
+  )
+  warmRouter()
+  process.on('exit', closeRouter)
+} else {
+  console.log('[router] off — every turn runs on the model above')
+}
 console.log(
   `[jarvis] write mode ${WRITE_MODE}` +
     (WRITE_MODE === 'confirm'
@@ -1250,6 +1260,9 @@ wss.on('connection', (socket) => {
    */
   let answering = null
   const sendTurn = (msg) => send({ ...msg, ask: answering })
+
+  /** The model the agent session is on right now; the router moves it. */
+  let currentModel = MODEL
 
   /**
    * Everything JARVIS has said aloud in the turn so far. A gated action is
@@ -1662,11 +1675,37 @@ wss.on('connection', (socket) => {
        * Waiting costs nothing when nothing is interrupting — the chain is an
        * already-resolved promise — and removes the cross-talk when there is.
        */
-      const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
-      void settling.then(() => {
+      void settling.then(async () => {
         answering = id
         spoken = ''
+        let text = msg.text
+
+        if (ROUTER_ENABLED) {
+          const r = await route(text)
+          // Nothing for a model to do: the bridge says it itself, instantly.
+          if (r.local) {
+            console.log(`[router] local (${r.reason}) ${r.ms}ms — "${text.slice(0, 60)}"`)
+            sendTurn({ type: 'model', tier: 'local', model: 'bridge', reason: r.reason })
+            sendTurn({ type: 'text', delta: r.local })
+            sendTurn({ type: 'done', text: r.local, costUsd: 0 })
+            return
+          }
+          text = r.text
+          if (r.model !== currentModel) {
+            try {
+              await session.setModel(r.model)
+              currentModel = r.model
+            } catch (err) {
+              console.warn(`[router] could not switch to ${r.model}: ${err?.message ?? err}`)
+            }
+          }
+          console.log(
+            `[router] ${r.tier} → ${currentModel} (${r.reason}, ${r.ms}ms) — "${text.slice(0, 60)}"`,
+          )
+          sendTurn({ type: 'model', tier: r.tier, model: currentModel, reason: r.reason })
+        }
+
         if (deliver) {
           const resolve = deliver
           deliver = null
