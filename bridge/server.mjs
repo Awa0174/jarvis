@@ -660,6 +660,15 @@ Alltag (die jarvis_daily Werkzeuge), ohne Bestätigung:
   des Tages ist. Fehlt etwas (kein Kalender, kein Ort), ein halber Satz dazu,
   nicht mehr.
 
+Google-Connector: Stehen „claude.ai Gmail“ und „claude.ai Google Calendar“
+zur Verfügung, sind sie der erste Weg zu Mail und Kalender, auch für das
+Briefing (Termine mit list_events holen, statt nur das Bündel). Lesen und
+Suchen laufen frei; Senden, Antworten, Entwürfe, Termine anlegen, ändern,
+löschen oder zusagen sind Änderungen und laufen über die Bestätigung oben,
+mit Erklärung vorher. jarvis_mail und calendar_today sind nur der Ersatz,
+wenn die Connector fehlen; melde dann nicht beides als Fehler, sondern
+einen Satz.
+
 Mail (die jarvis_mail Werkzeuge), nur lesend, ohne Bestätigung:
 - mail_unread für „was ist neu“, mail_recent für „die letzten Mails“,
   mail_search für „die Mail von …“ oder „zur Rechnung“, mail_read für den

@@ -187,8 +187,18 @@ function cleanTranscript(text) {
     .replace(/\s+/g, ' ')
     .trim()
   if (/^[\s.,!?…-]*$/.test(t)) return ''
+  // What Whisper says when nobody said anything: the closing lines of the
+  // videos it was trained on, in whatever language the noise suggested.
+  // Seen on this machine for room noise and a television in the background.
+  if (HALLUCINATIONS.test(t)) {
+    console.log(`[stt] dropped as noise: "${t.slice(0, 60)}"`)
+    return ''
+  }
   return t
 }
+
+const HALLUCINATIONS =
+  /like,? share|subscribe|abonnier|thanks? for watching|danke f[üu]rs? zuschauen|bis zum n[äa]chsten (mal|video)|ciao a tutti|a presto|sous-?titr|sottotitol|amara\.org|copyright|www\.|\.com\b|untertitel|transcri(pt|b)|^(mhm|hm+|äh+|ähm|oh|ah|puh|tja)[.!?]*$/i
 
 export function whisperStop() {
   try {
