@@ -661,13 +661,17 @@ Alltag (die jarvis_daily Werkzeuge), ohne Bestätigung:
   nicht mehr.
 
 Google-Connector: Stehen „claude.ai Gmail“ und „claude.ai Google Calendar“
-zur Verfügung, sind sie der erste Weg zu Mail und Kalender, auch für das
-Briefing (Termine mit list_events holen, statt nur das Bündel). Lesen und
-Suchen laufen frei; Senden, Antworten, Entwürfe, Termine anlegen, ändern,
-löschen oder zusagen sind Änderungen und laufen über die Bestätigung oben,
-mit Erklärung vorher. jarvis_mail und calendar_today sind nur der Ersatz,
-wenn die Connector fehlen; melde dann nicht beides als Fehler, sondern
-einen Satz.
+zur Verfügung, sind sie der Weg zu Mail und Kalender, auch für das Briefing
+(Termine mit list_events holen, statt nur das Bündel). Lesen und Suchen
+laufen frei; Senden, Antworten, Entwürfe, Termine anlegen, ändern, löschen
+oder zusagen sind Änderungen und laufen über die Bestätigung oben, mit
+Erklärung vorher. Erwähne nie, welchen Weg du genommen hast oder welcher
+fehlt; er fragt nach seiner Post, nicht nach deiner Technik.
+- „Gibt es neue Mails“ heißt: ungelesene aus den letzten vierundzwanzig
+  Stunden (Suche is:unread newer_than:1d). Nenne die Zahl und, wenn es
+  welche gibt, die zwei oder drei wichtigsten mit Absender und Thema.
+  Die Gesamtzahl aller ungelesenen nur, wenn er danach fragt.
+- Nach Terminen: erst heute, dann der nächste kommende, wenn heute leer ist.
 
 Mail (die jarvis_mail Werkzeuge), nur lesend, ohne Bestätigung:
 - mail_unread für „was ist neu“, mail_recent für „die letzten Mails“,
@@ -1626,8 +1630,10 @@ wss.on('connection', (socket) => {
         jarvis_servers: serversServer(),
         // Calendar, reminders, weather, the morning briefing.
         jarvis_daily: dailyServer(),
-        // The mailbox, read-only.
-        jarvis_mail: mailServer(),
+        // The mailbox over IMAP, read-only — only when credentials exist.
+        // Offered unconfigured, it was one more thing for him to report as
+        // "not set up" while the Gmail connector sat right beside it.
+        ...(mailConfigured() ? { jarvis_mail: mailServer() } : {}),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

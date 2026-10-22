@@ -322,34 +322,39 @@ export function dailyServer() {
       'und das Bündel für das Morgen-Briefing.',
     alwaysLoad: true,
     tools: [
-      tool(
-        'calendar_today',
-        'Die Termine von heute, oder eines bestimmten Tages. Nur lesend.',
-        { date: z.string().optional().describe('Optional: ein Datum als JJJJ-MM-TT. Fehlt es, heute.') },
-        async ({ date }) => {
-          const day = date ? new Date(`${date}T00:00:00`) : new Date()
-          if (Number.isNaN(day.getTime())) return text('Datum nicht verstanden.')
-          day.setHours(0, 0, 0, 0)
-          const next = new Date(day.getTime() + 86_400_000)
-          const events = await calendarEvents(day, next)
-          if (events === null) return text(NO_CALENDAR)
-          return text(`${fmtDate(day)}:\n${listEvents(events, { withDate: false })}`)
-        },
-      ),
-      tool(
-        'calendar_upcoming',
-        'Die nächsten Termine, über mehrere Tage. Nur lesend.',
-        { days: z.union([z.number(), z.string()]).optional().catch(undefined).describe('Wie viele Tage voraus, Standard 7.') },
-        async ({ days }) => {
-          const n = Math.max(1, Math.min(60, Number(days) || 7))
-          const from = new Date()
-          const to = new Date(from.getTime() + n * 86_400_000)
-          const events = await calendarEvents(from, to)
-          if (events === null) return text(NO_CALENDAR)
-          return text(`Nächste ${n} Tage:\n${listEvents(events.slice(0, 40), { withDate: true })}`)
-        },
-      ),
-
+      // The iCal path only when a feed is configured: with the Google
+      // Calendar connector present, an empty fallback was one more thing to
+      // report as missing.
+      ...(ICS_SOURCES.length ? [
+        tool(
+          'calendar_today',
+          'Die Termine von heute, oder eines bestimmten Tages. Nur lesend.',
+          { date: z.string().optional().describe('Optional: ein Datum als JJJJ-MM-TT. Fehlt es, heute.') },
+          async ({ date }) => {
+            const day = date ? new Date(`${date}T00:00:00`) : new Date()
+            if (Number.isNaN(day.getTime())) return text('Datum nicht verstanden.')
+            day.setHours(0, 0, 0, 0)
+            const next = new Date(day.getTime() + 86_400_000)
+            const events = await calendarEvents(day, next)
+            if (events === null) return text(NO_CALENDAR)
+            return text(`${fmtDate(day)}:\n${listEvents(events, { withDate: false })}`)
+          },
+        ),
+        tool(
+          'calendar_upcoming',
+          'Die nächsten Termine, über mehrere Tage. Nur lesend.',
+          { days: z.union([z.number(), z.string()]).optional().catch(undefined).describe('Wie viele Tage voraus, Standard 7.') },
+          async ({ days }) => {
+            const n = Math.max(1, Math.min(60, Number(days) || 7))
+            const from = new Date()
+            const to = new Date(from.getTime() + n * 86_400_000)
+            const events = await calendarEvents(from, to)
+            if (events === null) return text(NO_CALENDAR)
+            return text(`Nächste ${n} Tage:\n${listEvents(events.slice(0, 40), { withDate: true })}`)
+          },
+        ),
+  
+        ] : []),
       tool(
         'reminder_add',
         'Lege eine Erinnerung an. Rechne „in zehn Minuten“ oder „morgen um neun“ selbst in ' +

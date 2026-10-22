@@ -198,7 +198,7 @@ function cleanTranscript(text) {
 }
 
 const HALLUCINATIONS =
-  /like,? share|subscribe|abonnier|thanks? for watching|danke f[üu]rs? zuschauen|bis zum n[äa]chsten (mal|video)|ciao a tutti|a presto|sous-?titr|sottotitol|amara\.org|copyright|www\.|\.com\b|untertitel|transcri(pt|b)|^(mhm|hm+|äh+|ähm|oh|ah|puh|tja)[.!?]*$/i
+  /like,? share|subscribe|abonnier|thanks? for watching|^thank you\.?$|^thanks\.?$|danke f[üu]rs? zuschauen|bis zum n[äa]chsten (mal|video)|ciao a tutti|a presto|sous-?titr|sottotitol|amara\.org|copyright|www\.|\.com\b|untertitel|transcri(pt|b)|^(mhm|hm+|äh+|ähm|oh|ah|puh|tja)[.!?]*$/i
 
 export function whisperStop() {
   try {
