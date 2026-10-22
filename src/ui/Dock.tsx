@@ -16,6 +16,7 @@ const QUICK: Array<{ label: string; text?: string; action?: 'standby' }> = [
   { label: 'Briefing', text: 'Gib mir mein Morgen-Briefing.' },
   { label: 'Termine', text: 'Was steht heute in meinem Kalender?' },
   { label: 'Wetter', text: 'Wie wird das Wetter heute?' },
+  { label: 'Mails', text: 'Gibt es neue Mails?' },
   { label: 'Bildschirm', text: 'Was ist gerade auf meinem Bildschirm?' },
   { label: 'PC-Status', text: 'Wie ausgelastet ist mein PC?' },
   { label: 'Standby', action: 'standby' },

@@ -13,7 +13,11 @@ export default defineConfig({
     // models). Watching it is pointless and, while a download is in flight,
     // fatal: the watcher hit EBUSY on the half-written zip and took the whole
     // dev server down with it.
-    watch: { ignored: ['**/tools/**'] },
+    // .env too: the bridge's settings live there, and every edit to it made
+    // Vite restart and throw the open interface — and its agent session —
+    // away. The two VITE_ keys in it are read at start; change those and
+    // restart by hand.
+    watch: { ignored: ['**/tools/**', '**/.env'] },
   },
   optimizeDeps: {
     // kokoro-js pulls in `phonemizer`, which carries espeak-ng as inline WASM.

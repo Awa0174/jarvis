@@ -23,6 +23,7 @@ import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
 import { pcServer, warmPc } from './pc.mjs'
 import { serversServer, loadServers, SERVERS_FILE } from './servers.mjs'
 import { dailyServer, setDailyTransport, startDaily, onClientConnected, LOCATION, BRIEFING_AT } from './daily.mjs'
+import { mailServer, mailConfigured } from './mail.mjs'
 import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
@@ -330,6 +331,9 @@ function classifyTool(name) {
     // Calendar is read-only by construction; reminders are his own list, and
     // setting one is the user's order. The weather is the weather.
     if (server === 'jarvis_daily') return 'read'
+    // Mail is read-only by construction: nothing in that server sends,
+    // moves or deletes, and reading does not even mark a message as seen.
+    if (server === 'jarvis_mail') return 'read'
 
     // The user's servers: status and logs read, a command or a restart
     // changes something and goes through the card with the command on it.
@@ -603,7 +607,16 @@ Alltag (die jarvis_daily Werkzeuge), ohne Bestätigung:
   sechs Sätze: Begrüßung mit Tag und Datum, das Wetter in einem Satz, die
   Termine mit Uhrzeit, die Erinnerungen, und ein Satz, was das Wichtigste
   des Tages ist. Fehlt etwas (kein Kalender, kein Ort), ein halber Satz dazu,
-  nicht mehr.`
+  nicht mehr.
+
+Mail (die jarvis_mail Werkzeuge), nur lesend, ohne Bestätigung:
+- mail_unread für „was ist neu“, mail_recent für „die letzten Mails“,
+  mail_search für „die Mail von …“ oder „zur Rechnung“, mail_read für den
+  Inhalt. Nenne Absender und Worum-es-geht, nie die ganze Mail vorlesen,
+  nie Adressen oder Links aussprechen. Werbung und Newsletter in einem
+  Halbsatz abhandeln, das Persönliche zuerst.
+- Mails schreiben, beantworten oder löschen kannst du nicht; sag das, wenn er
+  es verlangt.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1276,6 +1289,7 @@ setDailyTransport({
   count: () => [...wss.clients].filter((c) => c.readyState === c.OPEN).length,
 })
 startDaily()
+console.log(`[mail] ${mailConfigured() ? `reading ${process.env.JARVIS_MAIL_USER} over IMAP` : 'not configured (JARVIS_MAIL_USER / JARVIS_MAIL_PASS)'}`)
 console.log(
   `[daily] briefing at ${BRIEFING_AT}${LOCATION ? ` · weather for ${LOCATION}` : ' · no JARVIS_LOCATION, so no weather in it'}` +
     `${process.env.JARVIS_CALENDAR_ICS ? ' · calendar linked' : ' · no calendar (JARVIS_CALENDAR_ICS)'}`,
@@ -1552,6 +1566,8 @@ wss.on('connection', (socket) => {
         jarvis_servers: serversServer(),
         // Calendar, reminders, weather, the morning briefing.
         jarvis_daily: dailyServer(),
+        // The mailbox, read-only.
+        jarvis_mail: mailServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

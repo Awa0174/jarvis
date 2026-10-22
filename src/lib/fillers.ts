@@ -106,6 +106,7 @@ const BY_TOOL: Rule[] = [
   { server: /^jarvis_daily$/, tool: /reminder/, lines: ['Wird eingetragen.', 'Notiere.'] },
   { server: /^jarvis_daily$/, tool: /weather/, lines: ['Prüfe das Wetter.'] },
   { server: /^jarvis_daily$/, tool: /briefing/, lines: ['Stelle das Briefing zusammen.', 'Einen Moment, Sir.'] },
+  { server: /^jarvis_mail$/, lines: ['Prüfe Ihre Mails.', 'Lese den Posteingang.'] },
   { server: /^jarvis_servers$/, tool: /server[ _]logs/, lines: ['Lese das Protokoll.', 'Gehe die Logs durch.'] },
   { server: /^jarvis_servers$/, tool: /server[ _](run|restart)/, lines: ['Wird ausgeführt.', 'Führe aus.'] },
   { server: /^jarvis_servers$/, lines: ['Frage den Server ab.', 'Prüfe den Server.'] },
