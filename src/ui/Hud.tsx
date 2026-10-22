@@ -6,6 +6,7 @@ import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
+import { Confirm } from './Confirm'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -305,6 +306,10 @@ export function Hud() {
           here now; Panels.tsx is unmounted rather than deleted so the design
           system it documents stays findable. */}
       <Blades />
+
+      {/* The permission card. Never hidden by ui_chrome: an action waiting on
+          the user is not furniture JARVIS gets to strip. */}
+      <Confirm />
 
       {ui.chrome.suggestions && <Suggestions />}
 

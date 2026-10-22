@@ -2,10 +2,12 @@ import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
 import type { AskHandlers, Msg } from './anthropic'
-import type { Blade, Panel } from '../store'
+import type { ConfirmVia } from './bridge'
+import type { Blade, ConfirmRequest, Panel } from '../store'
 
 export type { AskHandlers, Msg }
-export type { ConnectionState } from './bridge'
+export type { ConnectionState, ConfirmVia } from './bridge'
+export type { ConfirmRequest } from '../store'
 
 /**
  * Picks the brain. Both backends answer a question and stream text and tool
@@ -82,6 +84,21 @@ export function watchCapture(
   fn: (req: bridge.CaptureRequest) => Promise<bridge.CaptureResult>,
 ): void {
   if (usingBridge) bridge.watchCapture(fn)
+}
+
+/**
+ * Permission for an action that changes something. The bridge holds the tool
+ * call and asks here; the direct path has no tool gate of its own and never
+ * asks, which is one more reason it is the demo path and not this one.
+ */
+export function watchConfirm(fn: (req: ConfirmRequest) => void): void {
+  if (usingBridge) bridge.watchConfirm(fn)
+}
+export function watchConfirmEnd(fn: (id: string) => void): void {
+  if (usingBridge) bridge.watchConfirmEnd(fn)
+}
+export function answerConfirm(id: string, approved: boolean, via: ConfirmVia): void {
+  if (usingBridge) bridge.answerConfirm(id, approved, via)
 }
 
 /**

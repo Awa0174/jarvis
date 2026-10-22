@@ -1896,3 +1896,120 @@ kbd {
   transform: scaleX(-1);
   background: #000;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Permission card: an action that changes something, waiting on the user.    */
+/* Amber on purpose — it is the one element that is neither the interface     */
+/* colour nor an error, and it is the only thing on the HUD that takes a      */
+/* click. Framer owns `transform` (the x: -50% centring lives in Confirm.tsx). */
+/* -------------------------------------------------------------------------- */
+.confirm {
+  --amber: #ffb347;
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  width: min(580px, 84vw);
+  padding: 14px 18px 12px;
+  border: 1px solid color-mix(in srgb, var(--amber) 70%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--amber) 7%, rgba(2, 10, 12, 0.86));
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--amber) 25%, transparent);
+  color: var(--amber);
+  text-transform: none;
+  letter-spacing: 0.03em;
+  z-index: 8;
+  pointer-events: auto;
+}
+.confirm-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.confirm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 10px var(--amber);
+  animation: confirm-blink 1.1s ease-in-out infinite;
+}
+@keyframes confirm-blink {
+  50% { opacity: 0.25; }
+}
+.confirm-tool {
+  margin-top: 6px;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--amber) 60%, transparent);
+}
+.confirm-why {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #fff;
+  opacity: 0.92;
+}
+.confirm-detail {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #ffe9c7;
+  background: rgba(0, 0, 0, 0.5);
+  border-left: 2px solid var(--amber);
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.confirm-actions button {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 8px 18px;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.confirm-yes {
+  border: 1px solid var(--amber);
+  color: var(--amber);
+}
+.confirm-yes:hover,
+.confirm-yes:focus-visible {
+  background: var(--amber);
+  color: #000;
+}
+.confirm-no {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.8);
+}
+.confirm-no:hover,
+.confirm-no:focus-visible {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+.confirm-hint {
+  margin-top: 10px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.confirm-hint b {
+  color: #fff;
+  font-weight: 500;
+}

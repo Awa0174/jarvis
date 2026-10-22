@@ -89,14 +89,29 @@ function originAllowed(origin) {
 }
 
 /**
- * Voice is a bad interface for a confirmation dialog: there is no window to
- * click and the model can't pause for one. So the bridge decides.
- *
  * Read-only and generative tools run freely. Anything that writes to disk,
- * runs a shell, or changes the world waits for JARVIS_ALLOW_WRITES=1. Start
- * without it, and turn it on once you trust what you're demoing.
+ * runs a shell, or changes the world is subject to JARVIS_WRITE_MODE:
+ *
+ *   deny    — refused outright. The old read-only default.
+ *   confirm — the default now. The call is held until the user approves that
+ *             one call in the interface: a click, a key, or the spoken
+ *             confirmation phrase. The model has to explain first what it is
+ *             about to do, why, and what could go wrong — a call with no
+ *             explanation is bounced back to it. One approval covers one call.
+ *   allow   — everything runs without asking. JARVIS_ALLOW_WRITES=1 (and
+ *             `npm start -- --writes`) still selects this, for the demo.
  */
-const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
+const WRITE_MODE = (() => {
+  const m = (process.env.JARVIS_WRITE_MODE ?? '').toLowerCase()
+  if (m === 'deny' || m === 'confirm' || m === 'allow') return m
+  return process.env.JARVIS_ALLOW_WRITES === '1' ? 'allow' : 'confirm'
+})()
+const ALLOW_WRITES = WRITE_MODE === 'allow'
+const CONFIRM_WRITES = WRITE_MODE === 'confirm'
+
+/** How long the interface has to answer a confirmation before it counts as no.
+ *  Kept under the browser's two-minute idle timeout on a turn. */
+const CONFIRM_TIMEOUT_MS = Number(process.env.JARVIS_CONFIRM_TIMEOUT_MS ?? 90_000)
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
@@ -252,9 +267,22 @@ const VETO_EXEMPT = new Set([
   'openrouter__send-feedback',
 ])
 
-function decideTool(name) {
-  if (READ_ONLY_BUILTINS.has(name)) return true
-  if (WRITE_BUILTINS.has(name)) return ALLOW_WRITES
+/**
+ * The browser tools that act on a page. Everything else on that server reads:
+ * `chrome_navigate` begins with no read verb and would fall to the write
+ * branch by name alone, which would withhold the one tool the server is for.
+ */
+const CHROME_WRITE_TOOLS = new Set([
+  'chrome_click', 'chrome_type', 'chrome_key', 'chrome_form_input',
+  'chrome_new_tab', 'chrome_close_tab',
+])
+
+/**
+ * 'read' runs freely in every mode; 'write' is subject to WRITE_MODE.
+ */
+function classifyTool(name) {
+  if (READ_ONLY_BUILTINS.has(name)) return 'read'
+  if (WRITE_BUILTINS.has(name)) return 'write'
 
   const server = mcpServerOf(name)
   if (server) {
@@ -262,32 +290,63 @@ function decideTool(name) {
     // and draw on our own screen, so neither is something to withhold —
     // without them JARVIS has no display at all. They also have to be named
     // here rather than left to the verb rules below, which read `ui_theme` as
-    // a write and would hold the whole surface back behind ALLOW_WRITES.
-    if (server === 'jarvis' || server === 'jarvis_ui') return true
-
-    // The browser server gates itself, at construction: chromeServer() only
-    // builds the acting tools — click, type, form input, close tab — when
-    // ALLOW_WRITES is set, so anything that reaches here at all is something
-    // the same policy has already permitted. Deciding it a second time by
-    // reading verbs out of the name would only get it wrong: `chrome_navigate`
-    // begins with no read verb and would fall to the write branch, which would
-    // withhold the one tool the whole server is for.
-    if (server === 'jarvis_chrome') return true
-
-    // The camera. Not withheld behind ALLOW_WRITES: looking changes nothing,
-    // and the real gate is the browser's own camera permission plus an
-    // indicator the user can see for as long as it is live.
-    if (server === 'jarvis_eyes') return true
+    // a write and would hold the whole surface back.
+    if (server === 'jarvis' || server === 'jarvis_ui') return 'read'
 
     const tool = mcpToolOf(name)
+    if (server === 'jarvis_chrome') {
+      return CHROME_WRITE_TOOLS.has(tool) ? 'write' : 'read'
+    }
+
+    // The camera. Looking changes nothing, and the real gate is the browser's
+    // own camera permission plus an indicator the user can see while it is live.
+    if (server === 'jarvis_eyes') return 'read'
+
     if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
-      return ALLOW_WRITES
+      return 'write'
     }
     // The session tools this bridge is developed inside count as read-only too.
-    if (READ_ONLY_MCP.has(server) || server.startsWith('ccd_session')) return true
-    return READ_VERB.test(tool) ? true : ALLOW_WRITES
+    if (READ_ONLY_MCP.has(server) || server.startsWith('ccd_session')) return 'read'
+    return READ_VERB.test(tool) ? 'read' : 'write'
   }
-  return ALLOW_WRITES
+  return 'write'
+}
+
+/** Whether a tool runs without anyone being asked. */
+function decideTool(name) {
+  return classifyTool(name) === 'read' || ALLOW_WRITES
+}
+
+/** `mcp__higgsfield__generate_image` -> `higgsfield · generate image`, for the card. */
+function prettyToolName(raw) {
+  if (!raw.startsWith('mcp__')) return raw
+  const [, server, ...rest] = raw.split('__')
+  return `${server} · ${rest.join(' ').replace(/_/g, ' ')}`
+}
+
+/**
+ * What the user is shown about a gated call, so the approval is of the actual
+ * command and not of the model's description of it. Shell commands and file
+ * writes get their own shape; everything else is its arguments, capped.
+ */
+function describeInput(name, input) {
+  if (!input || typeof input !== 'object') return ''
+  const cap = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s)
+  if (name === 'Bash' && typeof input.command === 'string') return cap(input.command, 800)
+  if (typeof input.file_path === 'string') {
+    if (name === 'Write') return `${input.file_path}\n${cap(String(input.content ?? ''), 400)}`
+    if (name === 'Edit') {
+      return (
+        `${input.file_path}\n- ${cap(String(input.old_string ?? ''), 200)}` +
+        `\n+ ${cap(String(input.new_string ?? ''), 200)}`
+      )
+    }
+  }
+  try {
+    return cap(JSON.stringify(input), 600)
+  } catch {
+    return ''
+  }
 }
 
 const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
@@ -436,7 +495,19 @@ Using tools:
   is read out loud, and a URL becomes "aitch tee tee pee colon slash slash".
   Put the source in the panel as a short tag like "REUTERS" instead.
 - If a tool fails or isn't connected, one plain sentence saying so.
-- If you don't know, say you don't know.`
+- If you don't know, say you don't know.
+
+Actions that change something — running a command, writing or editing a file,
+clicking or typing in the browser, sending, installing, restarting, deleting:
+- Every one of them is gated by the interface, one call at a time. Before you
+  call such a tool, say in plain spoken sentences exactly what you are about to
+  do, why, and what could go wrong if it does. Then call the tool. A call made
+  without that explanation is refused and sent back to you.
+- The interface asks the user to confirm. Never ask for a plain "yes" yourself,
+  and never tell the user how to confirm — the interface does that.
+- If the call was declined, or no answer came, it did not happen. Say so in one
+  sentence, never pretend otherwise, and do not try it again unless asked.
+- Reading, searching, looking, and showing things on blades need no confirmation.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1006,8 +1077,12 @@ console.log(
 )
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(
-  `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
-    (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
+  `[jarvis] write mode ${WRITE_MODE}` +
+    (WRITE_MODE === 'confirm'
+      ? ` — shell/file/device actions wait for your approval in the interface (${CONFIRM_TIMEOUT_MS / 1000}s)`
+      : WRITE_MODE === 'deny'
+        ? ' — shell/file/device actions are refused; JARVIS_WRITE_MODE=confirm to be asked per call'
+        : ' — EVERYTHING runs without asking'),
 )
 // Asynchronous, so it lands a beat after the rest of the banner. Worth printing
 // at all because an extension that is simply not running is indistinguishable
@@ -1016,7 +1091,7 @@ console.log(
 void chromeAvailable().then((ok) => {
   console.log(
     ok
-      ? `[jarvis] browser control ready${ALLOW_WRITES ? '' : ' (reading only — clicking and typing need JARVIS_ALLOW_WRITES=1)'}`
+      ? `[jarvis] browser control ready${WRITE_MODE === 'deny' ? ' (reading only — clicking and typing are refused in this mode)' : ''}`
       : '[jarvis] browser control unavailable — open Chrome with the Claude extension enabled',
   )
 })
@@ -1087,6 +1162,14 @@ wss.on('connection', (socket) => {
   const sendTurn = (msg) => send({ ...msg, ask: answering })
 
   /**
+   * Everything JARVIS has said aloud in the turn so far. A gated action is
+   * only put to the user together with this, and refused when it is empty:
+   * the rule is explain first, then act, and the bridge is what makes the rule
+   * hold rather than the prompt alone.
+   */
+  let spoken = ''
+
+  /**
    * Asking the browser for something and waiting for the answer.
    *
    * Every other tool here pushes — a panel, a blade, a retint — and never needs
@@ -1107,11 +1190,25 @@ wss.on('connection', (socket) => {
       const id = `q${++asks}`
       const timer = setTimeout(() => {
         waiting.delete(id)
+        // Tell the interface the question is over, so a card it is still
+        // showing comes down rather than inviting an answer nobody is waiting for.
+        send({ type: `${kind}_end`, id, reason: 'timeout' })
         reject(new Error('the interface did not answer in time'))
       }, timeoutMs)
-      waiting.set(id, { resolve, timer })
+      waiting.set(id, { resolve, timer, kind })
       send({ type: kind, id, ...args })
     })
+
+  /** Withdraw every open confirmation, answered as a no. */
+  const withdrawConfirms = (reason) => {
+    for (const [id, slot] of waiting) {
+      if (slot.kind !== 'confirm') continue
+      waiting.delete(id)
+      clearTimeout(slot.timer)
+      send({ type: 'confirm_end', id, reason })
+      slot.resolve({ approved: false, via: reason })
+    }
+  }
 
   /**
    * Announcing a tool on the HUD, once, and only if it actually runs.
@@ -1211,7 +1308,9 @@ wss.on('connection', (socket) => {
         // The user's own Chrome, over the extension's native-host socket. It
         // holds no per-connection state, but it is built here with the rest so
         // the write gate is read once, at the same point as everything else.
-        jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
+        // The acting tools exist in confirm mode too; classifyTool names them
+        // as writes, so each click or keystroke is put to the user first.
+        jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES || CONFIRM_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
       },
@@ -1261,20 +1360,74 @@ wss.on('connection', (socket) => {
       // through a `Bash: echo hello` without asking, and only reaches us for
       // something with a consequence, like a `touch`. So a deny here is
       // reliable; an absence of a call here is not proof nothing ran.
-      canUseTool: async (toolName) => {
-        const ok = decideTool(toolName)
-        console.log(`[jarvis] tool ${toolName} -> ${ok ? 'allow' : 'deny'}`)
-        return ok
-          ? { behavior: 'allow' }
-          : {
-              behavior: 'deny',
-              // Every word of this can end up spoken, so it carries no command
-              // to read out — the persona is forbidden from saying one aloud.
-              message:
-                'Blocked: JARVIS is running in read-only mode and cannot take' +
-                ' actions that change anything. Tell the user this action is' +
-                ' unavailable until they enable write access on the machine.',
-            }
+      canUseTool: async (toolName, input) => {
+        const kind = classifyTool(toolName)
+        if (kind === 'read' || ALLOW_WRITES) {
+          console.log(`[jarvis] tool ${toolName} -> allow`)
+          return { behavior: 'allow' }
+        }
+        if (!CONFIRM_WRITES) {
+          console.log(`[jarvis] tool ${toolName} -> deny (read-only)`)
+          return {
+            behavior: 'deny',
+            // Every word of this can end up spoken, so it carries no command
+            // to read out — the persona is forbidden from saying one aloud.
+            message:
+              'Blocked: JARVIS is running in read-only mode and cannot take' +
+              ' actions that change anything. Tell the user this action is' +
+              ' unavailable until they enable write access on the machine.',
+          }
+        }
+
+        // Explain first, then act. The explanation goes on the card beside
+        // the actual call, so the user approves both the intent and the
+        // command — and a call with no explanation is bounced, not asked.
+        const explanation = spoken.trim()
+        if (!explanation) {
+          console.log(`[jarvis] tool ${toolName} -> deny (nothing explained first)`)
+          return {
+            behavior: 'deny',
+            message:
+              'Not yet. Before an action that changes anything you must first' +
+              ' say, in plain spoken sentences, exactly what you are about to' +
+              ' do, why, and what could go wrong. Say that now, then call the' +
+              ' tool again; the user will then be asked to confirm it.',
+          }
+        }
+
+        console.log(`[jarvis] tool ${toolName} -> asking the user`)
+        let reply
+        try {
+          reply = await ask(
+            'confirm',
+            {
+              tool: toolName,
+              label: prettyToolName(toolName),
+              detail: describeInput(toolName, input),
+              explanation,
+            },
+            CONFIRM_TIMEOUT_MS,
+          )
+        } catch (err) {
+          console.log(`[jarvis] tool ${toolName} -> no answer (${err.message})`)
+          return {
+            behavior: 'deny',
+            message:
+              'No confirmation arrived in time, so the action was not taken.' +
+              ' Say so in one sentence and do not retry it unless asked.',
+          }
+        }
+        if (reply?.approved === true) {
+          console.log(`[jarvis] tool ${toolName} -> approved by ${reply.via ?? 'the user'}`)
+          return { behavior: 'allow' }
+        }
+        console.log(`[jarvis] tool ${toolName} -> declined (${reply?.via ?? 'the user'})`)
+        return {
+          behavior: 'deny',
+          message:
+            'The user declined this action; it was not carried out.' +
+            ' Acknowledge that in one sentence and do not retry it.',
+        }
       },
     },
   })
@@ -1300,6 +1453,7 @@ wss.on('connection', (socket) => {
               ev.delta?.type === 'text_delta' &&
               ev.delta.text
             ) {
+              spoken += ev.delta.text
               sendTurn({ type: 'text', delta: ev.delta.text })
             }
             if (
@@ -1366,6 +1520,7 @@ wss.on('connection', (socket) => {
             // otherwise grow for as long as the socket is open.
             seenTools.clear()
             heldTools.clear()
+            spoken = ''
             break
 
           case 'system':
@@ -1421,6 +1576,7 @@ wss.on('connection', (socket) => {
       const id = typeof msg.id === 'string' ? msg.id : null
       void settling.then(() => {
         answering = id
+        spoken = ''
         if (deliver) {
           const resolve = deliver
           deliver = null
@@ -1441,6 +1597,9 @@ wss.on('connection', (socket) => {
     }
 
     if (msg.type === 'interrupt') {
+      // A question still waiting on the user belongs to the turn being
+      // abandoned. Answer it no now, or the agent sits on it until it times out.
+      withdrawConfirms('interrupt')
       // Held so the next question can wait for it rather than racing it.
       const stopped = turnFinished()
       settling = Promise.resolve(session.interrupt?.())
@@ -1456,6 +1615,7 @@ wss.on('connection', (socket) => {
 
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
+    withdrawConfirms('disconnect')
     closed = true
     deliver?.(null)
     session.close?.()

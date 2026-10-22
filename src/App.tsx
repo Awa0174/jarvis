@@ -25,10 +25,13 @@ import {
   watchCapture,
   watchUi,
   watchConnection,
+  watchConfirm,
+  watchConfirmEnd,
   connectedLabels,
   usingBridge,
   type Msg,
 } from './lib/brain'
+import { settleConfirm, CONFIRM_PHRASE, DECLINE_PHRASE } from './lib/confirm'
 import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
@@ -222,6 +225,10 @@ export default function App() {
 
   /** What the voice loop should do with what it hears, derived from phase. */
   const mode = (): VoiceMode => {
+    // An action is waiting on the user. Listen for the phrase as a command
+    // rather than as a barge-in: in guard mode the first syllable would
+    // interrupt the very turn that is waiting for the answer.
+    if (store.getState().confirm) return 'command'
     switch (store.getState().phase) {
       case 'offline':
       case 'boot':
@@ -271,6 +278,9 @@ export default function App() {
     clearIdle()
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
+    // Someone speaking while the card is up is most likely answering it. Do
+    // not cut the turn off; wait for the words.
+    if (store.getState().confirm) return
 
     const wasBusy =
       phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
@@ -292,6 +302,19 @@ export default function App() {
   const onUtterance = (text: string) => {
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot' || phase === 'dormant') return
+
+    /**
+     * An action is waiting on the user. Only the exact phrase counts, either
+     * way; anything else said now is neither an answer nor a new question —
+     * sending it on would interrupt the turn that is waiting — so it is
+     * dropped and the card stays up until it is answered or times out.
+     */
+    if (store.getState().confirm) {
+      if (CONFIRM_PHRASE.test(text)) settleConfirm(true, 'voice')
+      else if (DECLINE_PHRASE.test(text)) settleConfirm(false, 'voice')
+      else store.getState().setCaption('')
+      return
+    }
 
     // People keep using his name as a vocative once they're already talking to
     // him. Strip it rather than sending "jarvis" to the model as a question.
@@ -364,6 +387,17 @@ export default function App() {
     watchServers((servers) => store.getState().setConnected(servers))
     watchPanels((panel) => store.getState().pushPanel(panel))
     watchBlades((blade) => store.getState().pushBlade(blade))
+
+    // An action that changes something, held in the bridge until it is
+    // answered here. The card is the ask; the sound is so it is not missed
+    // while the user is looking elsewhere.
+    watchConfirm((req) => {
+      store.getState().setConfirm(req)
+      sfx.play('listen')
+    })
+    watchConfirmEnd((id) => {
+      if (store.getState().confirm?.id === id) store.getState().setConfirm(null)
+    })
 
     /**
      * JARVIS asking to see something.
@@ -579,6 +613,21 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      // While an action waits on the user, Enter approves it and Escape
+      // declines it, and nothing else on the keyboard does anything — Space
+      // in particular must not start a turn that would interrupt the one
+      // waiting. Enter only when no button has focus, or the click fires too.
+      if (store.getState().confirm) {
+        if (e.key === 'Enter' && !e.repeat && tag !== 'BUTTON') {
+          e.preventDefault()
+          settleConfirm(true, 'key')
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          settleConfirm(false, 'key')
+        }
+        return
+      }
 
       // V auditions the next British voice installed on this machine. Which
       // ones exist varies per Mac, so hearing them beats trusting a ranking.

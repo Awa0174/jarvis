@@ -210,8 +210,26 @@ function defined<T extends object>(patch: T | undefined): Partial<T> {
  */
 const MAX_ORBITS = 8
 
+/**
+ * A gated action the bridge is holding until the user approves it. One card,
+ * one call: the id goes back with the answer so the bridge can match them.
+ */
+export type ConfirmRequest = {
+  id: string
+  /** Raw tool name, e.g. `Bash` or `mcp__jarvis_chrome__chrome_click`. */
+  tool: string
+  /** The same, made readable for the card. */
+  label: string
+  /** The actual command or arguments — what is really about to run. */
+  detail: string
+  /** What JARVIS said before asking: what, why, and what could go wrong. */
+  explanation: string
+}
+
 type State = {
   phase: Phase
+  /** The action waiting on the user, or null. */
+  confirm: ConfirmRequest | null
   /** 0..1 mic loudness, drives the reactor pulse. */
   level: number
   /** What JARVIS is currently reading aloud or has just said. */
@@ -241,6 +259,7 @@ type State = {
   /** JARVIS's control over his own appearance. UI_DEFAULTS == the stock look. */
   ui: UiState
 
+  setConfirm: (c: ConfirmRequest | null) => void
   setVoice: (v: string) => void
   setGestures: (on: boolean) => void
   setLooking: (why: string | null) => void
@@ -272,6 +291,7 @@ type State = {
 
 export const useStore = create<State>((set) => ({
   phase: 'offline',
+  confirm: null,
   level: 0,
   caption: '',
   turns: [],
@@ -288,6 +308,7 @@ export const useStore = create<State>((set) => ({
   bootNote: '',
   ui: defaultUi(),
 
+  setConfirm: (confirm) => set({ confirm }),
   setVoice: (voice) => set({ voice }),
   setGestures: (gestures) => set({ gestures }),
   setLooking: (looking) => set({ looking }),

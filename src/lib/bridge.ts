@@ -1,5 +1,5 @@
 import type { AskHandlers } from './anthropic'
-import type { Blade, Panel } from '../store'
+import type { Blade, ConfirmRequest, Panel } from '../store'
 import { BRIDGE_WS_URL } from '../config'
 
 /**
@@ -35,6 +35,10 @@ type Frame = {
   seconds?: number
   when?: string
   servers?: Array<string | { name?: string }>
+  tool?: string
+  label?: string
+  detail?: string
+  explanation?: string
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -81,6 +85,34 @@ export type CaptureResult = { data?: string; mimeType?: string; error?: string }
 let onCapture: ((req: CaptureRequest) => Promise<CaptureResult>) | null = null
 export function watchCapture(fn: (req: CaptureRequest) => Promise<CaptureResult>) {
   onCapture = fn
+}
+
+/**
+ * The other request the bridge makes of us: permission.
+ *
+ * A tool call that changes something is held in the bridge until the user
+ * approves it here. The card goes up through `onConfirm`, the answer travels
+ * back as a `reply` against the request's id, and `onConfirmEnd` takes the
+ * card down again if the bridge withdraws the question first — a timeout, a
+ * barge-in, a dropped socket.
+ */
+let onConfirm: ((req: ConfirmRequest) => void) | null = null
+export function watchConfirm(fn: (req: ConfirmRequest) => void) {
+  onConfirm = fn
+}
+let onConfirmEnd: ((id: string) => void) | null = null
+export function watchConfirmEnd(fn: (id: string) => void) {
+  onConfirmEnd = fn
+}
+
+export type ConfirmVia = 'click' | 'voice' | 'key'
+
+/** Answer a held action. Silently a no-op if the socket is gone, in which case
+ *  the bridge has already withdrawn the question on its side. */
+export function answerConfirm(id: string, approved: boolean, via: ConfirmVia): void {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'reply', id, approved, via }))
+  }
 }
 
 /** Blades arrive the same way panels do — pushed mid-turn, so the article is
@@ -207,6 +239,16 @@ function dispatch(ws: WebSocket) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.
       onUi?.(msg.op, (msg.args ?? {}) as Record<string, unknown>)
+    } else if (msg.type === 'confirm' && msg.id) {
+      onConfirm?.({
+        id: msg.id,
+        tool: msg.tool ?? '',
+        label: msg.label ?? msg.tool ?? '',
+        detail: msg.detail ?? '',
+        explanation: msg.explanation ?? '',
+      })
+    } else if (msg.type === 'confirm_end' && msg.id) {
+      onConfirmEnd?.(msg.id)
     }
   })
 }
