@@ -597,6 +597,48 @@ export default function App() {
     store.getState().setPhase('dormant')
   }
 
+  // -- the dock -------------------------------------------------------------
+
+  /**
+   * The typed and clicked ways in, registered for the dock. A typed sentence
+   * is a spoken one that skipped the microphone: it interrupts him the same
+   * way and becomes the turn the same way.
+   */
+  useEffect(() => {
+    store.getState().setHandlers({
+      onSubmit: (text) => {
+        const phase = store.getState().phase
+        if (phase === 'offline' || phase === 'boot') return
+        store.getState().setError(null)
+        if (phase === 'thinking' || phase === 'tooling' || phase === 'speaking') {
+          onSpeechStart()
+        }
+        if (STANDBY.test(text)) {
+          goDormant()
+          return
+        }
+        void respond(text)
+      },
+      onMic: () => {
+        const phase = store.getState().phase
+        if (phase === 'offline' || phase === 'boot') return
+        if (phase === 'thinking' || phase === 'tooling' || phase === 'speaking') {
+          onSpeechStart()
+          listen(AWAIT_SPEECH_MS)
+        } else if (phase === 'listening' || phase === 'waking') {
+          goDormant()
+        } else {
+          onWake('')
+        }
+      },
+      onStandby: () => {
+        if (store.getState().phase !== 'offline') goDormant()
+      },
+    })
+    return () => store.getState().setHandlers({ onSubmit: null, onMic: null, onStandby: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // -- clap to start --------------------------------------------------------
 
   /**

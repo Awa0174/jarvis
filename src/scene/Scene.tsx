@@ -197,8 +197,12 @@ export function Scene() {
     <Canvas
       className="scene"
       camera={{ position: [0, 0, 6.2], fov: 45 }}
-      gl={{ antialias: true, alpha: true }}
-      dpr={[1, 2]}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+      // Capped at 1.5: at 2 on a 1080p display the bloom chain runs on a
+      // 3840x2160 buffer and the scene alone kept the GPU near ninety percent,
+      // which is the same GPU whisper transcribes on. Nothing in this scene
+      // has an edge that 1.5 cannot resolve.
+      dpr={[1, 1.5]}
     >
       <Rig />
       {/*

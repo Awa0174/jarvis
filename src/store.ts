@@ -232,6 +232,13 @@ type State = {
   confirm: ConfirmRequest | null
   /** Which model the router picked for the last question, for the HUD. */
   model: string
+  /**
+   * The conversation's entry points, registered by App so the dock can drive
+   * it: send typed text, open the microphone, stand him down.
+   */
+  onSubmit: ((text: string) => void) | null
+  onMic: (() => void) | null
+  onStandby: (() => void) | null
   /** 0..1 mic loudness, drives the reactor pulse. */
   level: number
   /** What JARVIS is currently reading aloud or has just said. */
@@ -263,6 +270,7 @@ type State = {
 
   setConfirm: (c: ConfirmRequest | null) => void
   setModel: (m: string) => void
+  setHandlers: (h: Partial<Pick<State, 'onSubmit' | 'onMic' | 'onStandby'>>) => void
   setVoice: (v: string) => void
   setGestures: (on: boolean) => void
   setLooking: (why: string | null) => void
@@ -296,6 +304,9 @@ export const useStore = create<State>((set) => ({
   phase: 'offline',
   confirm: null,
   model: '',
+  onSubmit: null,
+  onMic: null,
+  onStandby: null,
   level: 0,
   caption: '',
   turns: [],
@@ -314,6 +325,7 @@ export const useStore = create<State>((set) => ({
 
   setConfirm: (confirm) => set({ confirm }),
   setModel: (model) => set({ model }),
+  setHandlers: (h) => set(h),
   setVoice: (voice) => set({ voice }),
   setGestures: (gestures) => set({ gestures }),
   setLooking: (looking) => set({ looking }),

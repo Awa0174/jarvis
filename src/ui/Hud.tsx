@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useStore, accentFor, type Phase } from '../store'
-import { Suggestions } from './Suggestions'
 import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { Confirm } from './Confirm'
+import { Dock } from './Dock'
+import { Status } from './Status'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -155,8 +156,6 @@ export function Hud() {
   const connected = useStore((s) => s.connected)
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
-  const voice = useStore((s) => s.voice)
-  const model = useStore((s) => s.model)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
@@ -197,17 +196,37 @@ export function Hud() {
           </div>
         )}
 
-        <div className="status">
-          <span className="dot" />
-          <span className="status-text">
-            {/* bootNote is the voice-model download readout. It is only ever
-                the right thing to show during boot — as a general fallback a
-                note that never got cleared (a stuck 'voice 97%') sits over
-                LISTENING and PROCESSING for the rest of the session. */}
-            {phase === 'boot' && bootNote ? bootNote : statusText[phase]}
-          </span>
-        </div>
+        {phase === 'boot' ? (
+          <div className="status">
+            <span className="dot" />
+            <span className="status-text">
+              {/* bootNote is the voice-model download readout, only ever
+                  right during boot; after that the live cluster takes over. */}
+              {bootNote || statusText[phase]}
+            </span>
+          </div>
+        ) : (
+          <Status />
+        )}
       </header>
+
+      {/* Sonar while he listens: three rings leaving the reactor. Pure CSS,
+          so it costs the GPU nothing the scene is not already paying. */}
+      <AnimatePresence>
+        {(phase === 'listening' || phase === 'waking') && (
+          <motion.div
+            className="sonar"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            aria-hidden="true"
+          >
+            <span />
+            <span />
+            <span />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Left rail: which integrations are live */}
       {ui.chrome.systems && (
@@ -266,16 +285,16 @@ export function Hud() {
       {ui.chrome.transcript && (
         <div className="log">
           <AnimatePresence initial={false}>
-            {turns.slice(-4).map((t) => (
+            {turns.slice(-5).map((t) => (
               <motion.div
                 key={t.id}
                 className={`log-line log-${t.role}`}
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
+                initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 32 }}
               >
-                <span className="log-who">{t.role === 'user' ? 'YOU' : 'JARVIS'}</span>
+                <span className="log-who">{t.role === 'user' ? 'Du' : 'Jarvis'}</span>
                 {/* Only his half decodes. What the user said was never
                     transmitted from anywhere — dressing it up as machine
                     output would be a lie about where the words came from. */}
@@ -312,25 +331,16 @@ export function Hud() {
           the user is not furniture JARVIS gets to strip. */}
       <Confirm />
 
-      {ui.chrome.suggestions && <Suggestions />}
+      {/* The rotating "try saying…" line is gone: the dock's chips and the
+          field's placeholder say the same thing, in a place you can click. */}
 
       {error && <div className="error">{error}</div>}
 
+      <Dock />
+
       <footer className="hud-bottom">
         <span className="hint">
-          sag <b>„hey jarvis“</b> · <kbd>Leertaste</kbd> reden · <kbd>G</kbd> hände
-          {voice && (
-            <>
-              {' · '}
-              <kbd>V</kbd> stimme: {voice.replace(/\(.*?\)/g, '').trim()}
-            </>
-          )}
-          {model && (
-            <>
-              {' · '}
-              modell: <b>{model}</b>
-            </>
-          )}
+          <kbd>G</kbd> hände · <kbd>V</kbd> stimme · <kbd>D</kbd> diagnose · <kbd>Esc</kbd> standby
         </span>
       </footer>
 

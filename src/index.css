@@ -2013,3 +2013,344 @@ kbd {
   color: #fff;
   font-weight: 500;
 }
+
+/* ------------------------------------------------------------ status cluster */
+/* What he is doing, drawn: a pill with a live figure per phase, and chips for
+   the engines behind him. Top right, where the old one-line status sat. */
+
+.status-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  pointer-events: none;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, rgba(2, 10, 14, 0.6));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 18%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.pill-label {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #f2fbff;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.fig {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+.fig i {
+  display: block;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+.fig-dot i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.fig-sonar i {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  border: 1.5px solid var(--accent);
+  animation: sonar-small 1.6s ease-out infinite;
+}
+.fig-sonar i:nth-child(2) { animation-delay: 0.53s; }
+.fig-sonar i:nth-child(3) { animation-delay: 1.06s; }
+@keyframes sonar-small {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.fig-orbit {
+  animation: spin 1.4s linear infinite;
+}
+.fig-orbit i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.fig-orbit i:nth-child(1) { transform: translate(0, -8px); }
+.fig-orbit i:nth-child(2) { transform: rotate(120deg) translate(0, -8px); opacity: 0.7; }
+.fig-orbit i:nth-child(3) { transform: rotate(240deg) translate(0, -8px); opacity: 0.4; }
+
+.fig-bars {
+  gap: 2px;
+  align-items: center;
+}
+.fig-bars i {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  transform-origin: center;
+  transition: transform 70ms linear;
+}
+
+.engines {
+  display: flex;
+  gap: 6px;
+}
+
+.eng {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: color-mix(in srgb, var(--accent) 70%, #fff);
+  opacity: 0.6;
+}
+.eng-on { opacity: 0.9; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.tier-haiku { color: #6ef3b0; border-color: rgba(110, 243, 176, 0.45); opacity: 0.95; }
+.tier-sonnet { color: #5fe0ff; border-color: rgba(95, 224, 255, 0.45); opacity: 0.95; }
+.tier-opus { color: #c9a0ff; border-color: rgba(201, 160, 255, 0.5); opacity: 0.95; }
+.tier-fable { color: #ffd166; border-color: rgba(255, 209, 102, 0.5); opacity: 0.95; }
+.tier-local { color: #9fb3bd; border-color: rgba(159, 179, 189, 0.4); }
+
+/* -------------------------------------------------------------------- sonar */
+/* Three rings leaving the reactor while he listens. Behind everything. */
+
+.sonar {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 0;
+}
+.sonar span {
+  position: absolute;
+  left: -150px;
+  top: -150px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 25%, transparent);
+  animation: sonar-big 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.sonar span:nth-child(2) { animation-delay: 0.8s; }
+.sonar span:nth-child(3) { animation-delay: 1.6s; }
+@keyframes sonar-big {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* --------------------------------------------------------------- transcript */
+/* Bubbles. His on the left with the decode effect and an accent bar, yours on
+   the right in quiet glass. The reactor stays the centre of the picture. */
+
+.log {
+  bottom: 168px;
+  width: min(820px, 72vw);
+  gap: 10px;
+  z-index: 3;
+}
+
+.log-line {
+  flex-direction: column;
+  gap: 4px;
+  max-width: 78%;
+  padding: 10px 16px 11px;
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.log-user {
+  align-self: flex-end;
+  align-items: flex-end;
+  text-align: right;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom-right-radius: 4px;
+}
+.log-user .log-text { opacity: 0.8; color: #dbe7ec; }
+
+.log-jarvis {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--accent) 7%, rgba(2, 10, 14, 0.55));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-bottom-left-radius: 4px;
+}
+
+.log-who {
+  flex: none;
+  padding: 0;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  opacity: 0.4;
+}
+
+/* --------------------------------------------------------------------- dock */
+/* The command dock: chips, a microphone, a field to type into. */
+
+.dock {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  width: min(760px, 72vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+  z-index: 6;
+}
+
+.dock-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, rgba(2, 10, 14, 0.5));
+  color: color-mix(in srgb, var(--accent) 80%, #fff);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+.chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, rgba(2, 10, 14, 0.5));
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.chip:disabled { opacity: 0.35; cursor: default; }
+.chip-dim { opacity: 0.65; }
+
+.dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px 8px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, rgba(2, 10, 14, 0.66));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 30px color-mix(in srgb, var(--accent) 12%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.dock-bar:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), 0 0 36px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.dock-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: #f2fbff;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 6px 4px;
+}
+.dock-input::placeholder { color: color-mix(in srgb, var(--accent) 55%, #fff); opacity: 0.5; }
+.dock-input:disabled { opacity: 0.4; }
+
+.mic,
+.send {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: color-mix(in srgb, var(--accent) 85%, #fff);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.mic:hover,
+.send:hover:not(:disabled) {
+  background: var(--accent);
+  color: #02111a;
+  border-color: var(--accent);
+}
+.send:disabled { opacity: 0.3; cursor: default; }
+
+.mic-live {
+  background: var(--accent);
+  color: #02111a;
+}
+.mic-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  opacity: 0;
+}
+.mic-live .mic-ring {
+  animation: sonar-small 1.4s ease-out infinite;
+}
+.mic-busy { border-style: dashed; }
+
+.dock-hint {
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.35;
+  padding: 0 6px 0 4px;
+  white-space: nowrap;
+}
+
+.hud-bottom { bottom: 28px; opacity: 0.28; }
+
+/* Errors sit under the header now; the dock owns the bottom of the screen. */
+.error { bottom: auto; top: 112px; }
+
+@media (max-width: 1100px) {
+  .dock { width: min(760px, 88vw); bottom: 52px; }
+  .dock-hint { display: none; }
+  .log { width: min(820px, 88vw); bottom: 160px; }
+}
+
+/* Below 1100px the side rails collide with the transcript bubbles; the pill
+   and the dock carry the same information, so the rails go. */
+@media (max-width: 1100px) {
+  .rail { display: none; }
+}
