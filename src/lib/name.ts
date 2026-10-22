@@ -14,7 +14,9 @@ export const NAME =
   "(?:jarvis|jarvys|jervis|jarviss|jarv|travis|java's|jarwis|javis|javais|jaris|jarves|jarfis|charvis|dschawis" +
   // What the German recogniser actually returned for "Hey Jarvis" on this
   // machine: "Hi Jobbis". Its neighbours are listed with it.
-  '|jobbis|jobis|jobbes|jabis|jarbis|jawis|jawies|jarvies|jarwies|jarviz|dschobis|tschawis|charwis|scharvis)'
+  '|jobbis|jobis|jobbes|jabis|jarbis|jawis|jawies|jarvies|jarwies|jarviz|dschobis|tschawis|charwis|scharvis' +
+  // Also seen in the log: "Jovis wie ist mein Name", "Java wie ist mein Name".
+  '|jovis|java|jawa|jarvi)'
 
 /** Casual prefixes that come before the name, in either language. */
 export const PREFIX = '(?:hey|hi|ok|okay|yo|hallo|he|ey)?'

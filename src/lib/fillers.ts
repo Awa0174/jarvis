@@ -95,6 +95,13 @@ type Rule = {
 const FOOTAGE = ['Schneide das Material.', 'Rendere die Sequenz.']
 
 const BY_TOOL: Rule[] = [
+  // The machine itself. Tool halves arrive prettified ("open app"), hence the
+  // optional space in the patterns.
+  { server: /^jarvis_pc$/, tool: /open[ _](app|path)/, lines: ['Wird geöffnet.', 'Einen Moment.'] },
+  { server: /^jarvis_pc$/, tool: /find[ _]files|list[ _]apps/, lines: ['Suche.', 'Durchsuche die Dateien.'] },
+  { server: /^jarvis_pc$/, tool: /see[ _]screen/, lines: ['Sehe nach.', 'Einen Blick, Sir.'] },
+  { server: /^jarvis_pc$/, tool: /system[ _]status/, lines: ['Prüfe das System.'] },
+  { server: /^jarvis_memory$/, lines: ['Notiere.', 'Einen Moment.'] },
   // Video sits above image because higgsfield and palmier both do either, so
   // the verb in the tool name is the only thing separating them — a rule on the
   // server alone would send every generate_video to "Rendere."

@@ -328,7 +328,10 @@ function isEcho(heard: string, spoken: string, strict = false): boolean {
   // Unless he is talking right now: then a handful of common words with
   // nothing distinctive among them is far more likely his than yours.
   if (content.length < 2) {
-    if (all.length < 2) return strict
+    // One word. His one-word lines — "Notiert.", "Verstanden." — came back
+    // through the microphone as one-word questions, so a lone word that he
+    // just said counts as his. A lone word he did not say is the user's.
+    if (all.length < 2) return strict || mine.has(all[0])
     return strict || all.every((w) => mine.has(w))
   }
 

@@ -20,6 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
+import { pcServer, warmPc } from './pc.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -314,6 +315,12 @@ function classifyTool(name) {
     // without being asked each time — so it is not put behind the card.
     if (server === 'jarvis_memory') return 'read'
 
+    // PC help: opening a program the user just named is his own order, and
+    // the rest only looks (files by name, a picture of the screen, the
+    // load). Nothing in that server deletes, writes, installs or sends, and
+    // open_path refuses executables — see the note at the top of pc.mjs.
+    if (server === 'jarvis_pc') return 'read'
+
     const tool = mcpToolOf(name)
     if (server === 'jarvis_chrome') {
       return CHROME_WRITE_TOOLS.has(tool) ? 'write' : 'read'
@@ -539,7 +546,21 @@ löschen:
   das in einem Satz, tu nie so, als wäre es passiert, und versuch es nicht
   erneut, außer auf Aufforderung.
 - Lesen, suchen, hinschauen und Dinge auf Blades zeigen brauchen keine
-  Bestätigung.`
+  Bestätigung.
+
+Der Rechner (die jarvis_pc Werkzeuge), ohne Bestätigung, denn sie verändern nichts:
+- open_app öffnet ein Programm, das er nennt. Danach nur: „Chrome ist offen.“
+  Liefert es mehrere Kandidaten, nenne sie und frag, welches.
+- open_path öffnet eine Datei oder einen Ordner mit dem Standardprogramm,
+  etwa einen Treffer aus find_files. Programme startet es nicht.
+- find_files sucht Dateien nach Namen. Nenne die besten Treffer knapp: Name,
+  Ordner, Datum, die neuesten zuerst, höchstens vier. Biete an, einen zu öffnen.
+- see_screen nimmt ein Bild des Bildschirms auf und zeigt es dir. Nur wenn er
+  ausdrücklich fragt, was auf dem Bildschirm ist, oder dich bittet hinzusehen.
+  Beschreibe, was zählt, nicht jedes Detail, und leg das Bild mit der
+  zurückgegebenen Adresse als Blade (kind image) ab.
+- system_status für Fragen nach Auslastung, Speicher, Platz, Akku, Laufzeit.
+- Für Shell-Befehle bleibt es bei der Bestätigung oben.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1174,6 +1195,7 @@ if (TTS_ENGINE === 'piper') {
 }
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] memory ${MEMORY_FILE}`)
+warmPc()
 if (ROUTER_ENABLED) {
   console.log(
     `[router] on — votes by ${ROUTER_MODEL}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,
@@ -1425,6 +1447,8 @@ wss.on('connection', (socket) => {
         jarvis_eyes: visionServer(ask),
         // What he knows about the user, across sessions.
         jarvis_memory: memoryServer(),
+        // The machine itself: programs, files, the screen, the load.
+        jarvis_pc: pcServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
