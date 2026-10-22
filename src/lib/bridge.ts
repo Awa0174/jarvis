@@ -49,6 +49,18 @@ export function watchModel(fn: (tier: string, model: string) => void) {
   onModel = fn
 }
 
+/** A reminder has come due: the bridge keeps the clock, the page speaks. */
+let onRemind: ((text: string) => void) | null = null
+export function watchRemind(fn: (text: string) => void) {
+  onRemind = fn
+}
+
+/** The bridge asking the page to ask him something — the morning briefing. */
+let onNudge: ((text: string) => void) | null = null
+export function watchNudge(fn: (text: string) => void) {
+  onNudge = fn
+}
+
 /** Every question gets an id so its answer can be told from anyone else's. */
 let askSeq = 0
 
@@ -259,6 +271,10 @@ function dispatch(ws: WebSocket) {
       onConfirmEnd?.(msg.id)
     } else if (msg.type === 'model' && msg.tier) {
       onModel?.(msg.tier, msg.model ?? '')
+    } else if (msg.type === 'remind' && msg.text) {
+      onRemind?.(msg.text)
+    } else if (msg.type === 'nudge' && msg.text) {
+      onNudge?.(msg.text)
     }
   })
 }

@@ -106,6 +106,14 @@ export function watchModel(fn: (tier: string, model: string) => void): void {
   if (usingBridge) bridge.watchModel(fn)
 }
 
+/** A reminder coming due, and the morning briefing's nudge. Bridge only. */
+export function watchRemind(fn: (text: string) => void): void {
+  if (usingBridge) bridge.watchRemind(fn)
+}
+export function watchNudge(fn: (text: string) => void): void {
+  if (usingBridge) bridge.watchNudge(fn)
+}
+
 /**
  * Barge-in. Stops the answer on both paths and settles whatever `ask()` call
  * is outstanding, so the caller's await always returns — on the bridge by

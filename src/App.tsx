@@ -28,6 +28,8 @@ import {
   watchConfirm,
   watchConfirmEnd,
   watchModel,
+  watchRemind,
+  watchNudge,
   connectedLabels,
   usingBridge,
   type Msg,
@@ -434,6 +436,51 @@ export default function App() {
     // Which Claude is answering. Shown in the footer so a slow turn can be
     // read as "that went to the big model" rather than "something is stuck".
     watchModel((tier) => store.getState().setModel(tier))
+
+    /**
+     * A reminder coming due. Spoken straight away, in his register, without a
+     * model turn: the bridge kept the clock, the page only has to say it. It
+     * goes into the transcript too, so a line missed in the kitchen can be
+     * read on the way back.
+     */
+    watchRemind((text) => {
+      const s = store.getState()
+      if (s.phase === 'offline' || s.phase === 'boot') return
+      const line = `Sir, Erinnerung: ${text}`
+      silence()
+      s.setError(null)
+      s.pushTurn({ id: newId(), role: 'jarvis', text: line })
+      sfx.play('wake')
+      const r = createSpeaker()
+      speaker.current = r
+      r.say(line)
+      void r.end().then(() => {
+        if (speaker.current === r && store.getState().phase === 'dormant') {
+          // Leave the mic open a moment: "snooze", "danke", a follow-up.
+          listen(FOLLOW_UP_MS)
+        }
+      })
+    })
+
+    /**
+     * The bridge asking the page to ask him — the morning briefing. Only when
+     * he is free; a nudge that lands mid-answer waits half a minute and tries
+     * once more rather than cutting him off.
+     */
+    watchNudge((text) => {
+      const go = (attempt: number) => {
+        const phase = store.getState().phase
+        if (phase === 'offline' || phase === 'boot') return
+        if (phase === 'dormant' || phase === 'listening') {
+          store.getState().setError(null)
+          sfx.play('wake')
+          void respond(text)
+        } else if (attempt < 3) {
+          setTimeout(() => go(attempt + 1), 30_000)
+        }
+      }
+      go(0)
+    })
 
     /**
      * JARVIS asking to see something.

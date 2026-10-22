@@ -22,6 +22,7 @@ import { uiServer } from './ui.mjs'
 import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
 import { pcServer, warmPc } from './pc.mjs'
 import { serversServer, loadServers, SERVERS_FILE } from './servers.mjs'
+import { dailyServer, setDailyTransport, startDaily, onClientConnected, LOCATION, BRIEFING_AT } from './daily.mjs'
 import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
@@ -326,6 +327,10 @@ function classifyTool(name) {
     // open_path refuses executables — see the note at the top of pc.mjs.
     if (server === 'jarvis_pc') return 'read'
 
+    // Calendar is read-only by construction; reminders are his own list, and
+    // setting one is the user's order. The weather is the weather.
+    if (server === 'jarvis_daily') return 'read'
+
     // The user's servers: status and logs read, a command or a restart
     // changes something and goes through the card with the command on it.
     if (server === 'jarvis_servers') {
@@ -584,7 +589,21 @@ Seine Server (die jarvis_servers Werkzeuge):
 - server_run und server_restart verändern etwas: erst erklären, was genau,
   warum und was schiefgehen kann, dann aufrufen; das Interface holt sein Ja.
   Nie einen Neustart vorschlagen, bevor du den Status und das Log gesehen hast.
-- Zugangsdaten nennst du nie, auch nicht Hostnamen, außer er fragt.`
+- Zugangsdaten nennst du nie, auch nicht Hostnamen, außer er fragt.
+
+Alltag (die jarvis_daily Werkzeuge), ohne Bestätigung:
+- calendar_today und calendar_upcoming lesen seinen Kalender. Nenne Termine
+  gesprochen: „um zehn“, „heute Nachmittag“, nie Zeitstempel. Anlegen kann
+  er Termine nur in seiner Kalender-App; sag das, wenn er es verlangt.
+- reminder_add für „erinnere mich …“: rechne die Zeit selbst aus (heute ist
+  im Briefing-Bündel und in deinem Datum bekannt), bestätige in einem Satz
+  mit der Uhrzeit. Die Ansage übernimmt das Interface von selbst.
+- weather für Wetterfragen; ohne Ort der Heimatort.
+- briefing liefert das Bündel für das Morgen-Briefing. Sprich es als vier bis
+  sechs Sätze: Begrüßung mit Tag und Datum, das Wetter in einem Satz, die
+  Termine mit Uhrzeit, die Erinnerungen, und ein Satz, was das Wichtigste
+  des Tages ist. Fehlt etwas (kein Kalender, kein Ort), ein halber Satz dazu,
+  nicht mehr.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1248,6 +1267,19 @@ console.log(`[jarvis] memory ${MEMORY_FILE}`)
   )
 }
 warmPc()
+// Reminders and the morning briefing reach whichever interfaces are open.
+setDailyTransport({
+  send: (msg) => {
+    const raw = JSON.stringify(msg)
+    for (const c of wss.clients) if (c.readyState === c.OPEN) c.send(raw)
+  },
+  count: () => [...wss.clients].filter((c) => c.readyState === c.OPEN).length,
+})
+startDaily()
+console.log(
+  `[daily] briefing at ${BRIEFING_AT}${LOCATION ? ` · weather for ${LOCATION}` : ' · no JARVIS_LOCATION, so no weather in it'}` +
+    `${process.env.JARVIS_CALENDAR_ICS ? ' · calendar linked' : ' · no calendar (JARVIS_CALENDAR_ICS)'}`,
+)
 if (whisperInstalled()) {
   // Loads the model, which takes a few seconds; /health reports stt only
   // once it answers, so a page that boots before then keeps the browser ears.
@@ -1311,6 +1343,7 @@ const RESULT_FAILURES = {
 
 wss.on('connection', (socket) => {
   console.log('[jarvis] client connected')
+  onClientConnected()
 
   // Answer the HUD straight away rather than making it wait for the agent's
   // first turn. Refined later by the real init message.
@@ -1517,6 +1550,8 @@ wss.on('connection', (socket) => {
         jarvis_pc: pcServer(),
         // His servers, from ~/.jarvis/servers.json.
         jarvis_servers: serversServer(),
+        // Calendar, reminders, weather, the morning briefing.
+        jarvis_daily: dailyServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

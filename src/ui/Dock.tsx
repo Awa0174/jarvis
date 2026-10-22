@@ -13,10 +13,11 @@ import { useStore } from '../store'
  */
 
 const QUICK: Array<{ label: string; text?: string; action?: 'standby' }> = [
-  { label: 'Uhrzeit', text: 'Wie spät ist es?' },
+  { label: 'Briefing', text: 'Gib mir mein Morgen-Briefing.' },
+  { label: 'Termine', text: 'Was steht heute in meinem Kalender?' },
+  { label: 'Wetter', text: 'Wie wird das Wetter heute?' },
   { label: 'Bildschirm', text: 'Was ist gerade auf meinem Bildschirm?' },
   { label: 'PC-Status', text: 'Wie ausgelastet ist mein PC?' },
-  { label: 'Gedächtnis', text: 'Was weißt du über mich?' },
   { label: 'Standby', action: 'standby' },
 ]
 
