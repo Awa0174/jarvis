@@ -366,6 +366,57 @@ function decideTool(name) {
   return classifyTool(name) === 'read' || ALLOW_WRITES
 }
 
+/**
+ * Shell commands that only look.
+ *
+ * The shell tools are writes by name, and rightly: a shell can do anything.
+ * But "Get-ChildItem -Recurse | Sort-Object Length" does nothing, and
+ * putting it behind the card — with the explain-first rule on top — made
+ * "find my duplicate files" bounce three times before a single directory
+ * was read. So a command is let through as a read when every segment of it
+ * starts with a verb from a short list of commands that cannot change
+ * anything, and nothing in it redirects, invokes, or names a program file.
+ * Anything not on the list is a write, as before. The list is deliberately
+ * short; a missing read verb costs one card, a wrong one costs a file.
+ */
+const READ_SHELL = new Set([
+  // PowerShell
+  'get-childitem', 'get-item', 'get-content', 'get-itemproperty', 'get-process', 'get-service',
+  'get-date', 'get-location', 'get-psdrive', 'get-volume', 'get-disk', 'get-ciminstance',
+  'get-wmiobject', 'get-computerinfo', 'get-command', 'get-host', 'get-culture', 'get-uptime',
+  'get-eventlog', 'get-winevent', 'get-netadapter', 'get-netipaddress', 'get-nettcpconnection',
+  'get-appxpackage', 'get-startapps', 'get-printer', 'get-counter', 'get-filehash', 'get-acl',
+  'get-hotfix', 'get-localuser', 'get-timezone', 'get-random', 'get-help', 'get-member',
+  'select-string', 'select-object', 'where-object', 'sort-object', 'group-object',
+  'measure-object', 'format-table', 'format-list', 'format-wide', 'out-string', 'out-host',
+  'convertto-json', 'convertfrom-json', 'test-path', 'resolve-path', 'split-path', 'join-path',
+  'test-connection', 'test-netconnection', 'compare-object', 'write-output', 'write-host',
+  'ls', 'dir', 'gci', 'gi', 'gc', 'cat', 'type', 'echo', 'pwd', 'select', 'where', 'sort', 'measure', 'ft', 'fl',
+  // Bash / common binaries
+  'grep', 'egrep', 'head', 'tail', 'wc', 'du', 'df', 'ps', 'which', 'stat', 'file', 'uname',
+  'date', 'whoami', 'hostname', 'id', 'env', 'printenv', 'tree', 'findstr', 'ipconfig', 'systeminfo',
+  'tasklist', 'netstat', 'nslookup', 'ping', 'git',
+])
+/** Things that turn a read into something else, wherever they appear. */
+const WRITE_SHAPES =
+  /(^|[\s|;(])(remove-|set-|stop-|start-|new-|move-|copy-|rename-|clear-|invoke-|restart-|add-|out-file|export-|import-|install-|uninstall-|update-|register-|unregister-|enable-|disable-|iex|icm|rm\b|del\b|erase\b|rmdir\b|mv\b|cp\b|chmod|chown|kill\b|taskkill|shutdown|reg\b|regedit|wmic|sc\b|net\b|curl|wget|invoke-webrequest|iwr|irm|npm|npx|pip|python|node\b|cmd\b|powershell|pwsh|bash|sh\b|git\s+(push|commit|reset|checkout|clean|rm|rebase|merge|stash|branch\s+-d))|[>]|\.(exe|bat|cmd|ps1|vbs|msi|js|py)\b|\bforeach-object\b|\s%\s|\$\(|`|&\s|\bfor\b|\bwhile\b|\bdo\b/i
+
+function isReadOnlyShell(name, input) {
+  if (name !== 'Bash' && name !== 'PowerShell') return false
+  const cmd = String(input?.command ?? '').trim()
+  if (!cmd || cmd.length > 600) return false
+  if (WRITE_SHAPES.test(cmd)) return false
+  // Reading is free, except of the places secrets live: those still go
+  // through the card, so a key never reaches the model's context unasked.
+  if (/\.env\b|credentials|\.ssh\b|id_ed25519|id_rsa|servers\.json|\.jarvis[\\/]|\.claude\.json|\.claude[\\/]/i.test(cmd)) return false
+  const segments = cmd.split(/\|\||&&|\||;|\n/).map((s) => s.trim()).filter(Boolean)
+  if (!segments.length) return false
+  return segments.every((seg) => {
+    const first = seg.split(/\s+/)[0].toLowerCase().replace(/^\.\//, '')
+    return READ_SHELL.has(first)
+  })
+}
+
 /** `mcp__higgsfield__generate_image` -> `higgsfield · generate image`, for the card. */
 function prettyToolName(raw) {
   if (!raw.startsWith('mcp__')) return raw
@@ -1621,6 +1672,10 @@ wss.on('connection', (socket) => {
         const kind = classifyTool(toolName)
         if (kind === 'read' || ALLOW_WRITES) {
           console.log(`[jarvis] tool ${toolName} -> allow`)
+          return { behavior: 'allow' }
+        }
+        if (isReadOnlyShell(toolName, input)) {
+          console.log(`[jarvis] tool ${toolName} -> allow (read-only command): ${String(input?.command).slice(0, 100)}`)
           return { behavior: 'allow' }
         }
         if (!CONFIRM_WRITES) {

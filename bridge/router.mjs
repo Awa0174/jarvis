@@ -186,6 +186,9 @@ function openSession() {
     try {
       for await (const msg of s) {
         if (msg.type !== 'result') continue
+        if (msg.subtype !== 'success') {
+          console.warn(`[router] classifier turn ended with ${msg.subtype}: ${JSON.stringify(msg.errors ?? '').slice(0, 200)}`)
+        }
         const text = msg.subtype === 'success' ? String(msg.result ?? '') : ''
         pending?.resolve(text)
         pending = null
@@ -218,6 +221,7 @@ function vote(text) {
       const done = (answer) => {
         clearTimeout(timer)
         const word = /\b(HAIKU|SONNET|OPUS|FABLE)\b/i.exec(answer)?.[1]?.toLowerCase()
+        if (!word) console.warn(`[router] vote gave no tier: ${JSON.stringify(String(answer).slice(0, 160))}`)
         resolve(word ?? null)
       }
       pending = { resolve: done }
