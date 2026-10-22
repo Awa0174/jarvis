@@ -48,12 +48,21 @@ type Speaker = {
 // ---------------------------------------------------------------------------
 
 let speaking = ''
-let recent = ''
-let recentUntil = 0
+/** Everything said recently, each line with the moment it stops counting. */
+let recentLines: Array<{ text: string; until: number }> = []
 
-/** Recognition lags the speakers by a few hundred milliseconds, so a sentence
- *  keeps arriving at the microphone well after it has finished playing. */
-const ECHO_TAIL_MS = 2500
+/**
+ * How long a finished sentence keeps counting as "what the microphone hears".
+ *
+ * Recognition lags the speakers by a few hundred milliseconds in the best
+ * case, and the browser engine can sit on a result for several seconds
+ * before it finalises it — so his previous sentence was arriving as a brand
+ * new question after a shorter tail had expired, and he answered himself.
+ * Twelve seconds covers the slowest result observed with room to spare; the
+ * cost is only that a real follow-up repeating most of his words in that
+ * window is dropped, and those are rare.
+ */
+const ECHO_TAIL_MS = 12_000
 
 /**
  * Why you cannot hear him.
@@ -120,8 +129,9 @@ function setSpeaking(text: string) {
     return
   }
   if (speaking) {
-    recent = speaking
-    recentUntil = Date.now() + ECHO_TAIL_MS
+    const now = Date.now()
+    recentLines = recentLines.filter((l) => l.until > now)
+    recentLines.push({ text: speaking, until: now + ECHO_TAIL_MS })
   }
   speaking = ''
 }
@@ -131,13 +141,19 @@ function setSpeaking(text: string) {
  *
  * The voice loop reads this to recognise itself: the mic stays open while he
  * talks, so it hears every word he says and would otherwise treat his own
- * answer as a barge-in. Includes a short tail of the previous sentence,
- * because the gap between two sentences is exactly when the echo of the first
- * one lands. See `isEcho` in voice.ts.
+ * answer as a barge-in. Includes the tail of everything said in the last few
+ * seconds, because the gap after a sentence is exactly when its echo lands.
+ * See `isEcho` in voice.ts.
  */
 export function speakingNow(): string {
-  const tail = Date.now() < recentUntil ? recent : ''
-  return `${speaking} ${tail}`.trim()
+  const now = Date.now()
+  const tail = recentLines.filter((l) => l.until > now).map((l) => l.text)
+  return `${speaking} ${tail.join(' ')}`.trim()
+}
+
+/** True while a sentence is actually coming out of the speakers. */
+export function isSpeaking(): boolean {
+  return speaking !== ''
 }
 
 // ---------------------------------------------------------------------------
@@ -218,12 +234,16 @@ function score(v: SpeechSynthesisVoice): number {
  */
 function scoreGerman(v: SpeechSynthesisVoice, n: string): number {
   let s = 0
-  if (/\bconrad\b/.test(n)) s += 100
-  else if (/\bkillian\b/.test(n)) s += 90
-  else if (/\bflorian\b/.test(n)) s += 85
-  else if (/\bstefan\b/.test(n)) s += 70
+  if (/conrad/.test(n)) s += 100
+  else if (/florian/.test(n)) s += 95
+  else if (/killian/.test(n)) s += 90
+  else if (/stefan/.test(n)) s += 70
   else if (n.includes('google deutsch')) s += 65
   else if (/\b(markus|michael|yannick|anna)\b/.test(n)) s += 45
+  // Edge's multilingual English voices read German cleanly with a light
+  // accent — the voice the English build used, now speaking German. Listed
+  // so the V key can reach them; ranked below the native German set.
+  else if (/multilingual/.test(n) && /(andrew|brian|william|ryan|christopher)/.test(n)) s += 60
 
   if (n.includes('natural')) s += 20
   else if (n.includes('premium') || n.includes('enhanced')) s += 15
@@ -231,8 +251,8 @@ function scoreGerman(v: SpeechSynthesisVoice, n: string): number {
   if (/de[-_]de/i.test(v.lang)) s += 25
   else if (/^de/i.test(v.lang)) s += 10
 
-  // Female-presenting names across the German sets.
-  if (/\b(katja|amala|hedda|elke|seraphina|louisa|maja|tanja|klarissa|vicki|petra|anna|ingrid|leni)\b/.test(n)) {
+  // Female-presenting names across the German and multilingual sets.
+  if (/(katja|amala|hedda|elke|seraphina|louisa|maja|tanja|klarissa|vicki|petra|ingrid|leni|ava|emma|vivienne|jenny|aria)/.test(n)) {
     s -= 60
   }
   return s
@@ -242,9 +262,9 @@ function scoreGerman(v: SpeechSynthesisVoice, n: string): number {
  *  language — otherwise the picker cycles through a dozen novelty voices. */
 const USABLE = 40
 
-/** Voices in the language he speaks. */
+/** Voices in the language he speaks, plus the multilingual ones that can. */
 const inLang = (v: SpeechSynthesisVoice) =>
-  v.lang.toLowerCase().startsWith(LANG_BASE)
+  v.lang.toLowerCase().startsWith(LANG_BASE) || /multilingual/i.test(v.name)
 
 /** Best-first list of usable voices — also what the voice picker cycles. */
 export function candidateVoices(): SpeechSynthesisVoice[] {

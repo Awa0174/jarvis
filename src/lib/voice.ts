@@ -679,10 +679,10 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
       drop('echo of his own voice')
       return
     }
-    // Same rule as onResult: nothing said over him counts unless it names him
-    // or tells him to stop. A result that endpoints here without having
-    // barged in is playback the filters missed.
-    if (mode === 'guard' && !OVERRIDE.test(text)) {
+    // Same rule as onResult: nothing said over him while he is audible counts
+    // unless it names him or tells him to stop. A result that endpoints here
+    // without having barged in is playback the filters missed.
+    if (mode === 'guard' && speakingNow() !== '' && !OVERRIDE.test(text)) {
       diag.selfGuarded++
       drop('spoken over him without his name — ignored')
       return
@@ -759,7 +759,8 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     if (!started || (mode === 'guard' && !barged)) {
       if (mode === 'guard') {
         /**
-         * While he is talking, only his name or a stop word interrupts him.
+         * While sound is coming out of the speakers, only his name or a stop
+         * word interrupts him.
          *
          * This engine hears the speakers as clearly as it hears the user, and
          * the text filter above catches most of the playback but never all of
@@ -768,15 +769,23 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
          * counts and overlap ratios moved the problem around for three
          * revisions without removing it, and an assistant that cuts itself off
          * is worse than one you have to address by name. So: no free barge-in
-         * through this engine. Say "Jarvis" or "Stopp" and he stops at once.
+         * while he is audible. Say "Jarvis" or "Stopp" and he stops at once.
+         *
+         * While he is merely thinking — no audio, nothing to echo — the user
+         * is heard normally, after the two-word check below.
          */
-        if (!OVERRIDE.test(full)) {
+        const audible = speakingNow() !== ''
+        if (audible && !OVERRIDE.test(full)) {
           diag.selfGuarded++
           // Forget it entirely, or the fragment would be glued to the front
           // of whatever the user really says once he has finished.
           settled = ''
           interim = ''
           return
+        }
+        if (!audible && !OVERRIDE.test(full)) {
+          const words = full.split(/\s+/).filter(Boolean).length
+          if (words < 2) return
         }
       }
       started = true

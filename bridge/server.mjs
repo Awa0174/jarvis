@@ -24,10 +24,23 @@ import { visionServer } from './vision.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { piperSpeak, piperAvailable, piperInstalled, piperStop, PIPER_VOICE } from './speech.mjs'
+
+/**
+ * Settings from a `.env` in the project root, so nothing has to be typed into
+ * the shell before `npm start`. Variables already in the environment win, so
+ * `npm start -- --writes` and a one-off `JARVIS_MODEL=... npm start` still
+ * behave. The file is git-ignored; .env.example lists every key.
+ */
+try {
+  process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), '..', '.env'))
+} catch {
+  /* no .env — every setting has a default */
+}
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
@@ -545,16 +558,17 @@ const VOICE_ID = process.env.JARVIS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb'
 /**
  * Which engine speaks, chosen with JARVIS_TTS:
  *
+ *   browser     — the page's own speechSynthesis: Edge's natural voices on
+ *                 Windows, instant, no setup. The default without a key.
  *   piper       — a neural voice running locally in the bridge (speech.mjs).
- *                 No key, no network, proper German, the same voice in every
- *                 browser. The default whenever there is no ElevenLabs key.
- *   elevenlabs  — the premium path, when a key is configured.
- *   browser     — nothing from the bridge; the page uses speechSynthesis.
+ *                 No key, no network, the same voice in every browser; needs
+ *                 `npm run setup:piper` once. Opt in with JARVIS_TTS=piper.
+ *   elevenlabs  — the premium path; the default when a key is configured.
  */
 const TTS_ENGINE = (() => {
   const m = (process.env.JARVIS_TTS ?? '').toLowerCase()
   if (m === 'piper' || m === 'elevenlabs' || m === 'browser') return m
-  return elevenKey() ? 'elevenlabs' : 'piper'
+  return elevenKey() ? 'elevenlabs' : 'browser'
 })()
 
 /** Whether the local voice actually produced audio at boot. /health reports this. */
