@@ -76,7 +76,8 @@ export async function probeCapabilities(): Promise<Capabilities> {
 /** A short human label for the HUD: what voice stack is actually in play. */
 export function engineLabel(): string {
   const c = current
-  if (c.stt && c.tts) return 'ElevenLabs'
+  if (c.stt && c.tts) return c.voice === 'ElevenLabs' ? 'ElevenLabs' : `whisper · ${c.voice}`
+  if (c.stt) return 'whisper · browser voice'
   if (c.tts) return c.voice || 'bridge voice'
   // env.elevenKey is only meaningful in direct mode; harmless to mention.
   if (env.elevenKey && BACKEND !== 'bridge') return 'ElevenLabs (direct)'

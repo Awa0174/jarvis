@@ -21,6 +21,7 @@ import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
 import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
 import { pcServer, warmPc } from './pc.mjs'
+import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -151,7 +152,10 @@ const MODEL = process.env.JARVIS_MODEL ?? TIERS[DEFAULT_TIER]
  * matters more than pace; drop back to 'low' when filming and every second of
  * dead air shows.
  */
-const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
+// 'medium' here: with the router sending hard questions to the big models,
+// the common turn is a short exchange on haiku or sonnet, and on those
+// 'high' was seconds of thinking before a one-sentence answer.
+const EFFORT = process.env.JARVIS_EFFORT ?? 'medium'
 
 /**
  * Both spellings of every renamed built-in are listed on purpose. The SDK
@@ -826,6 +830,7 @@ const handleRequest = async (req, res) => {
     // without one it falls back to the browser's own recogniser and voice, so a
     // student with nothing configured still has a working assistant.
     const eleven = Boolean(elevenKey())
+    const stt = whisperReady() || eleven
     const tts =
       TTS_ENGINE === 'elevenlabs' ? eleven : TTS_ENGINE === 'piper' ? piperOk : false
     const voice =
@@ -835,7 +840,7 @@ const handleRequest = async (req, res) => {
           ? PIPER_VOICE.replace(/^[a-z]{2}_[A-Z]{2}-/, '')
           : ''
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, tts, stt: eleven, voice }))
+    return res.end(JSON.stringify({ ok: true, tts, stt, voice }))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -1062,9 +1067,9 @@ const handleRequest = async (req, res) => {
   // touches this endpoint; this is only for the words.
   if (req.method === 'POST' && req.url === '/stt') {
     const key = elevenKey()
-    if (!key) {
+    if (!key && !whisperReady()) {
       res.writeHead(503, cors)
-      return res.end('no elevenlabs key')
+      return res.end('no transcriber: no elevenlabs key and whisper is not running')
     }
 
     const type = req.headers['content-type'] || 'audio/webm'
@@ -1091,6 +1096,25 @@ const handleRequest = async (req, res) => {
     if (size < 1200) {
       res.writeHead(200, { ...cors, 'content-type': 'application/json' })
       return res.end(JSON.stringify({ text: '' }))
+    }
+
+    // The local transcriber first: it costs nothing per segment and hears
+    // German properly. ElevenLabs only when it is configured and whisper is
+    // not running.
+    if (whisperReady()) {
+      const t0 = Date.now()
+      try {
+        const text = await whisperTranscribe(Buffer.concat(chunks), type)
+        console.log(`[stt] ${Date.now() - t0}ms ${Math.round(size / 1024)}KB → "${text.slice(0, 80)}"`)
+        res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ text }))
+      } catch (err) {
+        console.warn(`[stt] whisper failed: ${err?.message ?? err}`)
+        if (!key) {
+          res.writeHead(502, cors)
+          return res.end(String(err?.message ?? err))
+        }
+      }
     }
 
     try {
@@ -1196,6 +1220,20 @@ if (TTS_ENGINE === 'piper') {
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] memory ${MEMORY_FILE}`)
 warmPc()
+if (whisperInstalled()) {
+  // Loads the model, which takes a few seconds; /health reports stt only
+  // once it answers, so a page that boots before then keeps the browser ears.
+  void whisperStart().then((ok) => {
+    console.log(
+      ok
+        ? `[stt] hearing via local whisper (${WHISPER_MODEL})`
+        : '[stt] whisper did not start — hearing via the browser',
+    )
+  })
+  process.on('exit', whisperStop)
+} else if (!elevenKey()) {
+  console.log('[stt] hearing via the browser — run `npm run setup:whisper` for local recognition')
+}
 if (ROUTER_ENABLED) {
   console.log(
     `[router] on — votes by ${ROUTER_MODEL}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,

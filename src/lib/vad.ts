@@ -76,27 +76,77 @@ const START_MS = 110
  * shorter window gets the transcript moving sooner.
  */
 const SILENCE_MS = 650
-/** Nobody speaks one segment for this long; cut it and transcribe what we have. */
-const MAX_MS = 20000
+/** Nobody speaks one segment for this long; cut it and transcribe what we
+ *  have. Fifteen, because the local transcriber's audio window is sized to
+ *  fifteen seconds (see bridge/stt.mjs) and a longer clip would lose its end. */
+const MAX_MS = 15000
 
 /** The floor adapts slowly upward (a fan spinning up) and quickly downward (a
  *  door closing), so it settles to genuine ambient noise without chasing speech. */
 const FLOOR_UP = 0.0008
 const FLOOR_DOWN = 0.02
 
-function pickMime(): string {
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/mp4',
-  ]
-  for (const m of candidates) {
-    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) {
-      return m
-    }
+/**
+ * Segments leave as 16 kHz mono WAV, built here from the raw samples.
+ *
+ * MediaRecorder used to hand back Opus in WebM, which the cloud transcriber
+ * accepted as-is. A local transcriber wants PCM, and decoding Opus in the
+ * bridge means shipping a decoder and paying for it on every segment. Taking
+ * the samples straight off the graph costs nothing, needs no codec on either
+ * side, and the file is small enough: a five-second segment is 160 KB.
+ */
+const TARGET_RATE = 16000
+/** Samples kept from before the gate opened, so the first phoneme is in. */
+const PREROLL_MS = 300
+
+function downsample(chunks: Float32Array[], from: number, to: number): Float32Array {
+  const total = chunks.reduce((n, c) => n + c.length, 0)
+  const input = new Float32Array(total)
+  let at = 0
+  for (const c of chunks) {
+    input.set(c, at)
+    at += c.length
   }
-  return ''
+  if (from === to) return input
+  const ratio = from / to
+  const out = new Float32Array(Math.floor(total / ratio))
+  for (let i = 0; i < out.length; i++) {
+    // Average the source samples that map onto this one: a cheap low-pass
+    // that keeps speech clean enough for a transcriber.
+    const start = Math.floor(i * ratio)
+    const end = Math.min(total, Math.floor((i + 1) * ratio))
+    let sum = 0
+    for (let j = start; j < end; j++) sum += input[j]
+    out[i] = end > start ? sum / (end - start) : 0
+  }
+  return out
+}
+
+function toWav(samples: Float32Array, rate: number): Blob {
+  const bytes = new ArrayBuffer(44 + samples.length * 2)
+  const v = new DataView(bytes)
+  const str = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(at + i, s.charCodeAt(i))
+  }
+  str(0, 'RIFF')
+  v.setUint32(4, 36 + samples.length * 2, true)
+  str(8, 'WAVE')
+  str(12, 'fmt ')
+  v.setUint32(16, 16, true)
+  v.setUint16(20, 1, true) // PCM
+  v.setUint16(22, 1, true) // mono
+  v.setUint32(24, rate, true)
+  v.setUint32(28, rate * 2, true)
+  v.setUint16(32, 2, true)
+  v.setUint16(34, 16, true)
+  str(36, 'data')
+  v.setUint32(40, samples.length * 2, true)
+  let at = 44
+  for (let i = 0; i < samples.length; i++, at += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    v.setInt16(at, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+  }
+  return new Blob([bytes], { type: 'audio/wav' })
 }
 
 export async function startVad(h: VadHandlers): Promise<Vad> {
@@ -112,12 +162,6 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
     return { stop: () => {}, setGuard: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
   }
 
-  if (typeof MediaRecorder === 'undefined') {
-    h.onError('This browser cannot record audio — voice input is unavailable.')
-    return { stop: () => {}, setGuard: () => {}, live: () => false, meter: () => ({ energy: 0, floor: 0, threshold: 0, speaking: false }) }
-  }
-
-  const mime = pickMime()
   const ctx = new AudioContext()
   // Some browsers start an AudioContext suspended even after a gesture; resume
   // is a no-op when it is already running.
@@ -129,6 +173,32 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
   source.connect(analyser)
   const buf = new Float32Array(analyser.fftSize)
 
+  // The sample tap. A ScriptProcessor rather than an AudioWorklet: it runs on
+  // the main thread, which is fine for copying 4096 samples ten times a
+  // second, and it needs no separate module file served next to the page.
+  const tap = ctx.createScriptProcessor(4096, 1, 1)
+  const preroll: Float32Array[] = []
+  const prerollMax = Math.ceil((PREROLL_MS / 1000) * ctx.sampleRate)
+  let capturing = false
+  let captured: Float32Array[] = []
+  tap.onaudioprocess = (e) => {
+    const chunk = new Float32Array(e.inputBuffer.getChannelData(0))
+    if (capturing) {
+      captured.push(chunk)
+      return
+    }
+    preroll.push(chunk)
+    let kept = preroll.reduce((n, c) => n + c.length, 0)
+    while (kept > prerollMax && preroll.length > 1) kept -= preroll.shift()!.length
+  }
+  source.connect(tap)
+  // A ScriptProcessor only runs while it is wired to the destination; the
+  // gain at zero keeps the microphone out of the speakers.
+  const sink = ctx.createGain()
+  sink.gain.value = 0
+  tap.connect(sink)
+  sink.connect(ctx.destination)
+
   let stopped = false
   let guard = false
   let floor = 0.01
@@ -136,9 +206,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
   let threshold = 0
 
   // Segment state.
-  let recorder: MediaRecorder | null = null
-  let parts: Blob[] = []
-  let armedAt = 0 // energy first rose; recording may be pre-rolling
+  let armedAt = 0 // energy first rose; capture may be pre-rolling
   let speaking = false
   let speechStartedAt = 0
   let lastLoud = 0
@@ -152,52 +220,27 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
   }
 
   const startRecorder = () => {
-    parts = []
-    try {
-      recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
-    } catch {
-      recorder = new MediaRecorder(stream)
-    }
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size) parts.push(e.data)
-    }
-    recorder.start()
+    // Start from the pre-roll, so the onset that tripped the gate is inside.
+    captured = preroll.splice(0, preroll.length)
+    capturing = true
   }
 
   const discardRecorder = () => {
-    if (!recorder) return
-    try {
-      recorder.ondataavailable = null
-      if (recorder.state !== 'inactive') recorder.stop()
-    } catch {
-      /* already gone */
-    }
-    recorder = null
-    parts = []
+    capturing = false
+    captured = []
   }
 
   const endSegment = () => {
-    const rec = recorder
     const startedAt = speechStartedAt
     speaking = false
     speechStartedAt = 0
-    if (!rec) return
-    recorder = null
-
-    const finalise = () => {
-      const type = rec.mimeType || mime || 'audio/webm'
-      const blob = new Blob(parts, { type })
-      parts = []
-      const ms = startedAt ? performance.now() - startedAt : 0
-      h.onEnd(blob, ms)
-    }
-    rec.onstop = finalise
-    try {
-      if (rec.state !== 'inactive') rec.stop()
-      else finalise()
-    } catch {
-      finalise()
-    }
+    if (!capturing) return
+    capturing = false
+    const chunks = captured
+    captured = []
+    const ms = startedAt ? performance.now() - startedAt : 0
+    const samples = downsample(chunks, ctx.sampleRate, TARGET_RATE)
+    h.onEnd(toWav(samples, TARGET_RATE), ms)
   }
 
   const tick = () => {
@@ -258,6 +301,9 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
       cancelAnimationFrame(raf)
       discardRecorder()
       try {
+        tap.onaudioprocess = null
+        tap.disconnect()
+        sink.disconnect()
         source.disconnect()
         void ctx.close()
       } catch {

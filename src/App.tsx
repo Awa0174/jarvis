@@ -72,6 +72,10 @@ const newId = () =>
 const BARE_NAME = new RegExp(`^${PREFIX}\\s*${NAME}[\\s,.!?]*$`, 'i')
 /** A leading vocative on a real command: "Jarvis, wie wird das Wetter". */
 const LEADING_NAME = new RegExp(`^${PREFIX}\\s*${NAME}\\b[\\s,.:!?-]*`, 'i')
+/** Spoken orders to stand down. Short phrases only, so a sentence that merely
+ *  mentions sleep ("wann soll ich schlafen gehen") is not one of them. */
+const STANDBY =
+  /^(?:(?:geh|gehe|ab)\s+(?:in\s+(?:den\s+)?)?standby|standby(?:\s*modus)?|ruhemodus|schlaf(?:en)?(?:\s*modus)?|gute\s+nacht|bis\s+später|das\s+war'?s|ruhe\s+jetzt|aus\s+jetzt|stand\s*by)[\s.!?]*$/i
 
 export default function App() {
   const store = useStore
@@ -326,6 +330,23 @@ export default function App() {
     const said = text.replace(LEADING_NAME, '').trim()
     if (!said) {
       listen(AWAIT_SPEECH_MS)
+      return
+    }
+
+    // "Jarvis, Standby." — stand him down by voice, no model involved. He
+    // acknowledges in two words and drops back to the wake word.
+    if (STANDBY.test(said)) {
+      silence()
+      const bye = createSpeaker()
+      speaker.current = bye
+      bye.say('Sehr wohl, Sir.')
+      void bye.end().then(() => {
+        if (speaker.current === bye) goDormant()
+      })
+      // The acknowledgement is short; do not let a slow engine hold him awake.
+      setTimeout(() => {
+        if (speaker.current === bye) goDormant()
+      }, 2500)
       return
     }
 

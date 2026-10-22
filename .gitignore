@@ -31,5 +31,5 @@ public/mediapipe/
 .env.*
 !.env.example
 
-# Local speech engine (Piper binary + voice models, ~250MB): scripts/setup-piper.mjs fetches them
+# Local speech engines (Piper voice ~250MB, whisper.cpp recogniser ~1.3GB): scripts/setup-*.mjs fetch them
 tools/

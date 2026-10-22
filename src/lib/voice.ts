@@ -425,7 +425,9 @@ export async function startVoice(h: VoiceHandlers): Promise<Voice> {
     )
     return { stop: () => {}, live: () => false }
   }
-  diag.engine = caps().stt ? 'elevenlabs' : 'browser'
+  // 'bridge' covers both transcribers behind /stt — local whisper, or
+  // ElevenLabs when a key is configured; the bridge banner says which.
+  diag.engine = caps().stt ? 'bridge' : 'browser'
   return caps().stt ? startElevenVoice(h) : startBrowserVoice(h)
 }
 
@@ -500,7 +502,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
 
       // His own voice, come back through the microphone. The raised guard
       // threshold stops most of it at the door; this catches the rest.
-      if (isEcho(said, speakingNow())) {
+      if (isEcho(said, speakingNow(), mode === 'guard')) {
         drop('echo of his own voice')
         return
       }
@@ -509,6 +511,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       diag.heardAt = Date.now()
 
       if (mode === 'wake') {
+        console.debug(`[voice] standby heard: "${said}"`)
         if (WAKE.test(said) && Date.now() - lastWake > WAKE_DEBOUNCE) {
           lastWake = Date.now()
           diag.wakes++
@@ -517,8 +520,22 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
           h.onWake(afterWake(said))
         } else {
           drop(`heard "${said.slice(-40)}" — not his name`)
+          h.onPartial(said.length > 60 ? `…${said.slice(-60)}` : said)
         }
         return
+      }
+
+      // Spoken over him while he is audible. The energy gate deliberately did
+      // not interrupt him for this (see onStart); the words decide. His name
+      // or a stop word cuts him off now, anything else is dropped.
+      if (mode === 'guard' && speakingNow() !== '') {
+        if (!OVERRIDE.test(said)) {
+          diag.selfGuarded++
+          drop('spoken over him without his name — ignored')
+          h.onPartial('„Jarvis“ oder „Stopp“ unterbricht ihn')
+          return
+        }
+        h.onSpeechStart()
       }
 
       // Not a turn yet — a piece of one. The assembler decides when the thought
@@ -553,16 +570,21 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       // Standing down mid-thought throws the thought away with it. Otherwise
       // held text would surface as the opening of the *next* conversation.
       if (mode === 'wake') assemble.cancel()
-      // The barge-in. In guard mode the user has started talking over him, and
-      // because the guard threshold is high this is a real interruption rather
-      // than leaked playback — so cut him off now, do not wait for the words.
+      // The barge-in. In guard mode the user has started talking over him.
+      // While he is audible the energy alone is not trusted — through a
+      // laptop speaker and microphone his own playback clears the raised
+      // threshold often enough that he interrupted himself — so the segment
+      // is captured and the WORDS decide, in transcribe() above: his name or
+      // a stop word cuts him off a moment later, anything else is dropped.
+      // While he is only thinking there is nothing to echo, and the energy
+      // gate interrupts at once as before.
       if (mode === 'guard') {
         const since = speakingSince()
         if (since && Date.now() - since < SELF_GUARD_MS) {
           diag.selfGuarded++
           return
         }
-        h.onSpeechStart()
+        if (speakingNow() === '') h.onSpeechStart()
       }
     },
     onEnd: (blob) => {

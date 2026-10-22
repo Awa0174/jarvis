@@ -17,7 +17,8 @@
     "bridge": "node bridge/server.mjs",
     "bridge:writes": "cross-env JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
     "setup": "node scripts/setup.mjs",
-    "setup:piper": "node scripts/setup-piper.mjs"
+    "setup:piper": "node scripts/setup-piper.mjs",
+    "setup:whisper": "node scripts/setup-whisper.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.308",
