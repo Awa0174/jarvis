@@ -167,7 +167,7 @@ const READ_ONLY_BUILTINS = new Set([
   'BashOutput', 'TaskOutput',
 ])
 const WRITE_BUILTINS = new Set([
-  'Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
+  'Bash', 'PowerShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
   'KillShell', 'TaskStop',
 ])
 
