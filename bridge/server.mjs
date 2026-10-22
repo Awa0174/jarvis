@@ -19,6 +19,7 @@ import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
+import { memoryServer, memoryPrompt, MEMORY_FILE } from './memory.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
 import { homedir, tmpdir } from 'node:os'
@@ -307,6 +308,11 @@ function classifyTool(name) {
     // here rather than left to the verb rules below, which read `ui_theme` as
     // a write and would hold the whole surface back.
     if (server === 'jarvis' || server === 'jarvis_ui') return 'read'
+
+    // His own memory file in the user's home, one fact per line. Writing to
+    // it changes nothing but what he knows, and the user asked him to keep it
+    // without being asked each time — so it is not put behind the card.
+    if (server === 'jarvis_memory') return 'read'
 
     const tool = mcpToolOf(name)
     if (server === 'jarvis_chrome') {
@@ -1167,6 +1173,7 @@ if (TTS_ENGINE === 'piper') {
   )
 }
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
+console.log(`[jarvis] memory ${MEMORY_FILE}`)
 if (ROUTER_ENABLED) {
   console.log(
     `[router] on — votes by ${ROUTER_MODEL}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,
@@ -1416,12 +1423,16 @@ wss.on('connection', (socket) => {
         jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES || CONFIRM_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
+        // What he knows about the user, across sessions.
+        jarvis_memory: memoryServer(),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
-      systemPrompt: SYSTEM_PROMPT,
+      // The memory is read here, per connection, so a fact learned in the
+      // last session is in front of him from the first word of this one.
+      systemPrompt: SYSTEM_PROMPT + memoryPrompt(),
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),

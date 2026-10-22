@@ -11,7 +11,10 @@
  * confirmation phrases, so a spelling that wakes him also confirms for him.
  */
 export const NAME =
-  "(?:jarvis|jarvys|jervis|jarviss|jarv|travis|java's|jarwis|javis|javais|jaris|jarves|jarfis|charvis|dschawis)"
+  "(?:jarvis|jarvys|jervis|jarviss|jarv|travis|java's|jarwis|javis|javais|jaris|jarves|jarfis|charvis|dschawis" +
+  // What the German recogniser actually returned for "Hey Jarvis" on this
+  // machine: "Hi Jobbis". Its neighbours are listed with it.
+  '|jobbis|jobis|jobbes|jabis|jarbis|jawis|jawies|jarvies|jarwies|jarviz|dschobis|tschawis|charwis|scharvis)'
 
 /** Casual prefixes that come before the name, in either language. */
 export const PREFIX = '(?:hey|hi|ok|okay|yo|hallo|he|ey)?'

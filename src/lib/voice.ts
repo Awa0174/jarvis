@@ -751,8 +751,11 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
         h.onWake(trailing)
       } else {
         // Every transcript that did not wake him, so "the wake word stopped
-        // working" can be read off the console as what was actually heard.
+        // working" can be read off the console as what was actually heard —
+        // and off the screen: in standby the caption shows what he hears, so
+        // "Hey Jarvis" coming through as "Hey Charles" is visible at once.
         if (fresh) console.debug(`[voice] standby, not his name: "${heard}"`)
+        h.onPartial(heard.length > 60 ? `…${heard.slice(-60)}` : heard)
         if (settled.length > 400) settled = ''
       }
       return
