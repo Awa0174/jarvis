@@ -41,7 +41,9 @@ export function loadServers() {
   try {
     const cfg = JSON.parse(readFileSync(SERVERS_FILE, 'utf8'))
     const list = Array.isArray(cfg) ? cfg : (cfg?.servers ?? [])
-    return list.filter((s) => s?.name && (s.kind === 'ssh' ? s.host : true))
+    return list.filter(
+      (s) => s?.name && (s.kind === 'ssh' ? s.host : s.kind === 'pterodactyl' ? s.server : true),
+    )
   } catch (err) {
     console.warn(`[servers] ${SERVERS_FILE} is not valid JSON: ${err?.message ?? err}`)
     return []
@@ -100,6 +102,108 @@ const exec = (server, command, timeoutMs) =>
 
 /** Shell-quote for the remote POSIX shell. */
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
+
+// ---------------------------------------------------------------------------
+// Pterodactyl panels (game-server hosting), through the client API
+// ---------------------------------------------------------------------------
+
+/**
+ * A server behind a Pterodactyl panel has no SSH; the panel's client API is
+ * the way in. The key is a *client* key made in the panel under Account →
+ * API Credentials, and it lives in .env (JARVIS_PTERO_KEY, or the name the
+ * server entry gives in `keyEnv`), never in the server list.
+ */
+function pteroAuth(server) {
+  const panel = (server.panel ?? process.env.JARVIS_PTERO_URL ?? '').replace(/\/+$/, '')
+  const key = process.env[server.keyEnv ?? 'JARVIS_PTERO_KEY']
+  if (!panel) throw new Error('kein Panel: `panel` im Servereintrag oder JARVIS_PTERO_URL in .env fehlt')
+  if (!key) throw new Error(`kein API-Schlüssel: ${server.keyEnv ?? 'JARVIS_PTERO_KEY'} in .env fehlt`)
+  if (!server.server) throw new Error('`server` (die Kennung aus der Panel-URL) fehlt im Servereintrag')
+  return { panel, key, id: server.server }
+}
+
+async function ptero(server, path, init = {}) {
+  const { panel, key, id } = pteroAuth(server)
+  const res = await fetch(`${panel}/api/client/servers/${id}${path}`, {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(20_000),
+  })
+  if (res.status === 204) return null
+  const body = await res.text()
+  if (!res.ok) {
+    let detail = body.slice(0, 300)
+    try {
+      detail = JSON.parse(body)?.errors?.map((e) => e.detail).join('; ') ?? detail
+    } catch {
+      /* plain text */
+    }
+    throw new Error(`Panel antwortet ${res.status}: ${detail}`)
+  }
+  try {
+    return JSON.parse(body)
+  } catch {
+    return body
+  }
+}
+
+const mb = (bytes) => `${Math.round((Number(bytes) || 0) / 1024 / 1024)} MB`
+const dur = (ms) => {
+  const s = Math.floor((Number(ms) || 0) / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return h ? `${h} h ${m} min` : `${m} min`
+}
+
+async function pteroStatus(server) {
+  const [info, res] = await Promise.all([ptero(server, ''), ptero(server, '/resources')])
+  const a = info?.attributes ?? {}
+  const r = res?.attributes ?? {}
+  const u = r.resources ?? {}
+  const lim = a.limits ?? {}
+  const lines = [
+    `Server: ${a.name ?? server.name}${a.description ? ` — ${a.description}` : ''} (${a.node ?? 'Node ?'})`,
+    `Zustand: ${r.current_state ?? 'unbekannt'}${r.is_suspended ? ' · GESPERRT' : ''}${u.uptime ? ` · läuft seit ${dur(u.uptime)}` : ''}`,
+    `CPU: ${Math.round(Number(u.cpu_absolute) || 0)} %${lim.cpu ? ` von ${lim.cpu} %` : ''}`,
+    `RAM: ${mb(u.memory_bytes)}${lim.memory ? ` von ${lim.memory} MB` : ''}`,
+    `Platz: ${mb(u.disk_bytes)}${lim.disk ? ` von ${lim.disk} MB` : ''}`,
+    `Netz: ${mb(u.network_rx_bytes)} empfangen, ${mb(u.network_tx_bytes)} gesendet`,
+  ]
+  const alloc = a.relationships?.allocations?.data?.find((x) => x.attributes?.is_default)?.attributes
+  if (alloc) lines.push(`Adresse: ${alloc.ip_alias ?? alloc.ip}:${alloc.port}`)
+  if (a.invocation) lines.push(`Start: ${String(a.invocation).slice(0, 160)}`)
+  return lines.join('\n')
+}
+
+async function pteroLogs(server, source, lines, grep) {
+  const file = String(source).startsWith('/') ? String(source) : `/${source}`
+  const text = await ptero(server, `/files/contents?file=${encodeURIComponent(file)}`)
+  const all = String(text).split(/\r?\n/)
+  let picked = all.slice(-Math.max(10, Math.min(2000, lines)))
+  if (grep) {
+    const g = String(grep).toLowerCase()
+    picked = picked.filter((l) => l.toLowerCase().includes(g))
+  }
+  return picked.join('\n')
+}
+
+async function pteroCommand(server, command) {
+  await ptero(server, '/command', { method: 'POST', body: JSON.stringify({ command: String(command) }) })
+  return `An die Konsole geschickt: ${command}`
+}
+
+async function pteroPower(server, signal) {
+  const s = ['start', 'stop', 'restart', 'kill'].includes(signal) ? signal : 'restart'
+  await ptero(server, '/power', { method: 'POST', body: JSON.stringify({ signal: s }) })
+  await new Promise((r) => setTimeout(r, 2500))
+  const res = await ptero(server, '/resources')
+  return `Signal "${s}" gesendet. Zustand jetzt: ${res?.attributes?.current_state ?? 'unbekannt'}`
+}
 
 // ---------------------------------------------------------------------------
 // Status
@@ -182,7 +286,12 @@ export function serversServer() {
           return text(
             list
               .map((s) => {
-                const where = s.kind === 'local' ? 'dieser PC' : `${s.user ?? 'root'}@${s.host}${s.port ? `:${s.port}` : ''}`
+                const where =
+                  s.kind === 'local'
+                    ? 'dieser PC'
+                    : s.kind === 'pterodactyl'
+                      ? `Panel ${(s.panel ?? process.env.JARVIS_PTERO_URL ?? '?').replace(/^https?:\/\//, '')}, Server ${s.server}`
+                      : `${s.user ?? 'root'}@${s.host}${s.port ? `:${s.port}` : ''}`
                 const svc = (s.services ?? []).join(', ') || '–'
                 const logs = Object.keys(s.logs ?? {}).join(', ') || '–'
                 return `${s.name} (${s.kind}, ${where}) · Dienste: ${svc} · Logs: ${logs}${s.note ? ` · ${s.note}` : ''}`
@@ -201,7 +310,7 @@ export function serversServer() {
           const s = findServer(name)
           if (!s) return text(`Kein Server namens "${name}". server_list zeigt die Namen.`)
           try {
-            const out = await exec(s, statusCommand(s))
+            const out = s.kind === 'pterodactyl' ? await pteroStatus(s) : await exec(s, statusCommand(s))
             console.log(`[servers] status ${s.name}`)
             return text(cap(out || '(keine Ausgabe)'))
           } catch (err) {
@@ -229,7 +338,12 @@ export function serversServer() {
           const source = key ? (known[key] ?? known[Object.keys(known).find((k) => k.toLowerCase() === key.toLowerCase()) ?? ''] ?? key) : Object.values(known)[0]
           if (!source) return text(`Für ${s.name} ist kein Log eingerichtet; nenne journal:<unit>, docker:<container> oder einen Pfad.`)
           try {
-            const out = await exec(s, logCommand(s, source, Number(lines) || 150, grep ? String(grep) : ''), 40_000)
+            const n = Number(lines) || 150
+            const g = grep ? String(grep) : ''
+            const out =
+              s.kind === 'pterodactyl'
+                ? await pteroLogs(s, source, n, g)
+                : await exec(s, logCommand(s, source, n, g), 40_000)
             console.log(`[servers] logs ${s.name} ${source}`)
             return text(cap(out || '(leer)'))
           } catch (err) {
@@ -251,7 +365,8 @@ export function serversServer() {
           const s = findServer(name)
           if (!s) return text(`Kein Server namens "${name}".`)
           try {
-            const out = await exec(s, String(command), 60_000)
+            const out =
+              s.kind === 'pterodactyl' ? await pteroCommand(s, command) : await exec(s, String(command), 60_000)
             console.log(`[servers] run ${s.name}: ${String(command).slice(0, 120)}`)
             return text(cap(out || '(keine Ausgabe, Befehl beendet)'))
           } catch (err) {
@@ -262,16 +377,29 @@ export function serversServer() {
 
       tool(
         'server_restart',
-        'Starte einen Dienst (systemd) oder Container (docker) auf einem Server neu. ' +
-          'Wird vom Interface bestätigt; erkläre vorher, was neu startet und wen das trifft.',
+        'Starte einen Dienst (systemd) oder Container (docker) auf einem Server neu; ' +
+          'bei einem Panel-Server (pterodactyl) den Spielserver selbst, mit service = ' +
+          'restart, start, stop oder kill. Wird vom Interface bestätigt; erkläre vorher, ' +
+          'was neu startet und wen das trifft (Spieler fliegen raus).',
         {
           name: z.string().describe('Der Servername.'),
-          service: z.string().describe('Dienstname, oder docker:<container>.'),
+          service: z.string().describe('Dienstname, docker:<container>, oder bei Panel-Servern restart/start/stop/kill.'),
         },
         async ({ name, service }) => {
           const s = findServer(name)
           if (!s) return text(`Kein Server namens "${name}".`)
           const svc = String(service)
+          if (s.kind === 'pterodactyl') {
+            // On a panel the "service" is the game server itself; the word
+            // names the power signal: restart (default), start, stop, kill.
+            try {
+              const out = await pteroPower(s, svc.toLowerCase())
+              console.log(`[servers] power ${s.name} ${svc}`)
+              return text(out)
+            } catch (err) {
+              return text(`Fehlgeschlagen: ${String(err?.message ?? err).slice(0, 600)}`)
+            }
+          }
           const m = /^docker:(.+)$/.exec(svc)
           const command =
             s.kind === 'local'

@@ -28,6 +28,17 @@
       }
     },
     {
+      "name": "timetales",
+      "kind": "pterodactyl",
+      "panel": "https://panel.example.com",
+      "server": "1a2b3c4d",
+      "keyEnv": "JARVIS_PTERO_KEY",
+      "note": "Spielserver im Pterodactyl-Panel; Schlüssel in .env",
+      "logs": {
+        "console": "/garrysmod/console.log"
+      }
+    },
+    {
       "name": "nanos",
       "kind": "ssh",
       "host": "203.0.113.11",
