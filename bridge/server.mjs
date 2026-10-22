@@ -27,6 +27,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { piperSpeak, piperAvailable, piperInstalled, piperStop, PIPER_VOICE } from './speech.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
@@ -542,6 +543,24 @@ function elevenKey() {
 const VOICE_ID = process.env.JARVIS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb'
 
 /**
+ * Which engine speaks, chosen with JARVIS_TTS:
+ *
+ *   piper       — a neural voice running locally in the bridge (speech.mjs).
+ *                 No key, no network, proper German, the same voice in every
+ *                 browser. The default whenever there is no ElevenLabs key.
+ *   elevenlabs  — the premium path, when a key is configured.
+ *   browser     — nothing from the bridge; the page uses speechSynthesis.
+ */
+const TTS_ENGINE = (() => {
+  const m = (process.env.JARVIS_TTS ?? '').toLowerCase()
+  if (m === 'piper' || m === 'elevenlabs' || m === 'browser') return m
+  return elevenKey() ? 'elevenlabs' : 'piper'
+})()
+
+/** Whether the local voice actually produced audio at boot. /health reports this. */
+let piperOk = false
+
+/**
  * Where /file is permitted to read from, and how big a read may get.
  *
  * The roots are realpath'd once at boot so the containment check below compares
@@ -765,8 +784,16 @@ const handleRequest = async (req, res) => {
     // without one it falls back to the browser's own recogniser and voice, so a
     // student with nothing configured still has a working assistant.
     const eleven = Boolean(elevenKey())
+    const tts =
+      TTS_ENGINE === 'elevenlabs' ? eleven : TTS_ENGINE === 'piper' ? piperOk : false
+    const voice =
+      TTS_ENGINE === 'elevenlabs' && eleven
+        ? 'ElevenLabs'
+        : TTS_ENGINE === 'piper' && piperOk
+          ? PIPER_VOICE.replace(/^[a-z]{2}_[A-Z]{2}-/, '')
+          : ''
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven }))
+    return res.end(JSON.stringify({ ok: true, tts, stt: eleven, voice }))
   }
 
   // Serve local image files to the page. Screenshots and generated art land on
@@ -890,9 +917,9 @@ const handleRequest = async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/tts') {
     const key = elevenKey()
-    if (!key) {
+    if (TTS_ENGINE === 'browser' || (TTS_ENGINE === 'elevenlabs' && !key)) {
       res.writeHead(503, cors)
-      return res.end('no elevenlabs key')
+      return res.end('no bridge voice configured')
     }
     // A spoken line is a few hundred bytes. Anything approaching this is not a
     // sentence, and buffering it unbounded would let one request eat the heap.
@@ -922,6 +949,24 @@ const handleRequest = async (req, res) => {
     if (!text) {
       res.writeHead(400, cors)
       return res.end('no text')
+    }
+    if (TTS_ENGINE === 'piper') {
+      try {
+        const wav = await piperSpeak(String(text))
+        res.writeHead(200, {
+          ...cors,
+          'content-type': 'audio/wav',
+          'content-length': wav.length,
+          'cache-control': 'no-cache',
+        })
+        return res.end(wav)
+      } catch (err) {
+        // The page falls back to its own voice on any non-200, so the cost of
+        // a dead engine is timbre, not silence. Say why in the log.
+        console.warn(`[jarvis] local voice failed: ${err?.message ?? err}`)
+        res.writeHead(502, cors)
+        return res.end(String(err?.message ?? err))
+      }
     }
     try {
       const upstream = await fetch(
@@ -1083,9 +1128,29 @@ const wss = new WebSocketServer({
 server.listen(PORT)
 
 console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
-console.log(
-  `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
-)
+if (TTS_ENGINE === 'piper') {
+  if (!piperInstalled()) {
+    console.log(
+      '[jarvis] speech using browser fallback voice — run `npm run setup:piper` for the local neural voice',
+    )
+  } else {
+    // Asynchronous: one short synthesis, so /health promises only what works.
+    // It also loads the model, so the first real sentence does not pay for it.
+    void piperAvailable().then((ok) => {
+      piperOk = ok
+      console.log(
+        ok
+          ? `[jarvis] speech via local neural voice ${PIPER_VOICE} (piper)`
+          : '[jarvis] speech: piper did not produce audio — using the browser voice',
+      )
+    })
+  }
+  process.on('exit', piperStop)
+} else {
+  console.log(
+    `[jarvis] speech ${TTS_ENGINE === 'elevenlabs' ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
+  )
+}
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(
   `[jarvis] write mode ${WRITE_MODE}` +

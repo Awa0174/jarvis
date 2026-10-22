@@ -9,6 +9,11 @@ export default defineConfig({
     // only accepts sockets from localhost:5173-5199, so stay inside that range
     // or set JARVIS_ALLOWED_ORIGINS to match.
     port: Number(process.env.PORT) || 5173,
+    // The local speech engine lives in tools/ (a binary and ~170MB of voice
+    // models). Watching it is pointless and, while a download is in flight,
+    // fatal: the watcher hit EBUSY on the half-written zip and took the whole
+    // dev server down with it.
+    watch: { ignored: ['**/tools/**'] },
   },
   optimizeDeps: {
     // kokoro-js pulls in `phonemizer`, which carries espeak-ng as inline WASM.

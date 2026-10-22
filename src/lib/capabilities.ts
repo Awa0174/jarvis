@@ -20,12 +20,14 @@ import { BACKEND, BRIDGE_HTTP_URL, env } from '../config'
 export type Capabilities = {
   /** ElevenLabs speech-to-text (Scribe) is reachable via the bridge. */
   stt: boolean
-  /** ElevenLabs text-to-speech is reachable via the bridge. */
+  /** A bridge voice — Microsoft's neural voice or ElevenLabs — is reachable. */
   tts: boolean
+  /** What that voice is called, for the HUD. Empty when tts is false. */
+  voice: string
 }
 
 /** Browser-only until the probe says otherwise. Safe default: the app works. */
-let current: Capabilities = { stt: false, tts: false }
+let current: Capabilities = { stt: false, tts: false, voice: '' }
 let probed = false
 
 /** The last known capabilities. Read synchronously by the voice and speech
@@ -47,7 +49,7 @@ export function capabilitiesProbed(): boolean {
 export async function probeCapabilities(): Promise<Capabilities> {
   if (BACKEND !== 'bridge') {
     // No bridge to ask. Direct mode has no server-side speech, so browser only.
-    current = { stt: false, tts: false }
+    current = { stt: false, tts: false, voice: '' }
     probed = true
     return current
   }
@@ -56,8 +58,12 @@ export async function probeCapabilities(): Promise<Capabilities> {
       signal: AbortSignal.timeout(3000),
     })
     if (res.ok) {
-      const h = (await res.json()) as { stt?: boolean; tts?: boolean }
-      current = { stt: Boolean(h.stt), tts: Boolean(h.tts) }
+      const h = (await res.json()) as { stt?: boolean; tts?: boolean; voice?: string }
+      current = {
+        stt: Boolean(h.stt),
+        tts: Boolean(h.tts),
+        voice: h.tts ? String(h.voice ?? 'bridge voice') : '',
+      }
     }
   } catch {
     // Bridge down or slow — stay on the browser engines rather than blocking
@@ -71,7 +77,7 @@ export async function probeCapabilities(): Promise<Capabilities> {
 export function engineLabel(): string {
   const c = current
   if (c.stt && c.tts) return 'ElevenLabs'
-  if (c.tts) return 'ElevenLabs voice'
+  if (c.tts) return c.voice || 'bridge voice'
   // env.elevenKey is only meaningful in direct mode; harmless to mention.
   if (env.elevenKey && BACKEND !== 'bridge') return 'ElevenLabs (direct)'
   return 'browser speech'

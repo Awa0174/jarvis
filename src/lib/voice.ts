@@ -269,9 +269,14 @@ const norm = (s: string) =>
  * he happens to be saying. Suppressing "stop" because he just said "stop"
  * would be the single most infuriating failure this file could have.
  */
+/**
+ * Only words nobody says by accident, and that he himself is unlikely to say
+ * mid-answer: a list that once held "nein" and "moment" let his own "Nein,
+ * Sir" through the echo filter and he interrupted himself with it.
+ */
 const OVERRIDE = new RegExp(
-  `\\b(stop|stopp|wait|${NAME}|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no|` +
-    'warte|halt|abbrechen|abbruch|genug|ruhe|still|egal|vergiss es|nein|moment)\\b',
+  `\\b(stop|stopp|halt|wait|warte|${NAME}|cancel|abbrechen|abbruch|hold on|shut up|` +
+    'never ?mind|forget it|vergiss es)\\b',
   'i',
 )
 
@@ -674,6 +679,14 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
       drop('echo of his own voice')
       return
     }
+    // Same rule as onResult: nothing said over him counts unless it names him
+    // or tells him to stop. A result that endpoints here without having
+    // barged in is playback the filters missed.
+    if (mode === 'guard' && !OVERRIDE.test(text)) {
+      diag.selfGuarded++
+      drop('spoken over him without his name — ignored')
+      return
+    }
     diag.heard = text
     diag.heardAt = Date.now()
     if (mode === 'wake') {
@@ -744,25 +757,26 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     settled += fresh
     const full = `${settled} ${interim}`.replace(/\s+/g, ' ').trim()
     if (!started || (mode === 'guard' && !barged)) {
-      const words = full.split(/\s+/).filter(Boolean).length
       if (mode === 'guard') {
-        // An override word cuts through everything below it — "stop" has to
-        // work on the first syllable or it is not a stop button.
+        /**
+         * While he is talking, only his name or a stop word interrupts him.
+         *
+         * This engine hears the speakers as clearly as it hears the user, and
+         * the text filter above catches most of the playback but never all of
+         * it: a mangled fragment that shares no recognisable word with the
+         * sentence it came from looks exactly like someone else talking. Word
+         * counts and overlap ratios moved the problem around for three
+         * revisions without removing it, and an assistant that cuts itself off
+         * is worse than one you have to address by name. So: no free barge-in
+         * through this engine. Say "Jarvis" or "Stopp" and he stops at once.
+         */
         if (!OVERRIDE.test(full)) {
-          // His own first syllable, same as the premium path. This engine has
-          // no energy gate, so without the clock the only defence is the word
-          // count below, and a single clear word is exactly what leaks first.
-          const since = speakingSince()
-          if (since && Date.now() - since < SELF_GUARD_MS) {
-            diag.selfGuarded++
-            return
-          }
-          // Three words before this engine believes an interruption. The energy
-          // path can be instant because it triggers on loudness the canceller
-          // has already had a pass at; here the evidence is a transcript of
-          // audio that includes his own playback, and a word or two of that is
-          // not evidence of anything — it is what leaks first.
-          if (words < 3) return
+          diag.selfGuarded++
+          // Forget it entirely, or the fragment would be glued to the front
+          // of whatever the user really says once he has finished.
+          settled = ''
+          interim = ''
+          return
         }
       }
       started = true
