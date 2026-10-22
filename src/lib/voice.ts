@@ -1,4 +1,5 @@
-import { BRIDGE_HTTP_URL } from '../config'
+import { BRIDGE_HTTP_URL, LANG } from '../config'
+import { NAME, PREFIX } from './name'
 import { getMic } from './audio'
 import { speakingNow, speakingSince } from './tts'
 import { startVad, type Vad } from './vad'
@@ -77,8 +78,7 @@ const WAKE_DEBOUNCE = 1500
  * used to be silently discarded, so the wake word "just didn't work" with no
  * indication why. Better a rare false wake than a name that does not answer.
  */
-const WAKE =
-  /\b(?:hey|hi|ok|okay|yo)?\s*(?:jarvis|jarvys|jervis|jarvis's|travis|jarviss|java's|jarv)\b(?!'s)/i
+const WAKE = new RegExp(`\\b${PREFIX}\\s*${NAME}\\b(?!'s)`, 'i')
 
 /** Everything after the wake phrase, which is usually the actual command. */
 function afterWake(text: string): string {
@@ -123,7 +123,7 @@ function afterWake(text: string): string {
  * last word of a real request.
  */
 const CONTINUES =
-  /\b(and|or|but|so|because|since|if|when|while|that|which|who|whose|to|of|in|on|at|by|for|with|from|about|into|onto|over|under|between|through|the|a|an|my|your|his|her|its|our|their|is|are|was|were|be|been|do|does|did|have|has|had|can|could|would|should|will|shall|might|must|like|than|then|as|very|really|just|some|any|all|both|either|neither)$/i
+  /\b(and|or|but|so|because|since|if|when|while|that|which|who|whose|to|of|in|on|at|by|for|with|from|about|into|onto|over|under|between|through|the|a|an|my|your|his|her|its|our|their|is|are|was|were|be|been|do|does|did|have|has|had|can|could|would|should|will|shall|might|must|like|than|then|as|very|really|just|some|any|all|both|either|neither|und|oder|aber|weil|wenn|dass|ob|obwohl|während|der|die|das|den|dem|des|ein|eine|einen|einem|einer|mein|meine|meinen|meinem|dein|deine|sein|seine|ihr|ihre|ihrem|unser|unsere|von|vom|zu|zum|zur|im|am|auf|für|mit|bei|nach|über|unter|zwischen|durch|ohne|gegen|ist|sind|war|waren|hat|haben|habe|wird|werden|kann|könnte|würde|soll|sollte|will|muss|wie|als|dann|also|sehr|nur|noch|mal|ganz|so|etwas|alle|jede|jeden|diese|dieser|dieses|welche|welcher)$/i
 
 /** Trailing punctuation a transcriber emits mid-thought. */
 const TRAILS = /[,;:–—-]$/
@@ -254,10 +254,13 @@ function makeAssembler(h: {
 // Hearing himself
 // ---------------------------------------------------------------------------
 
+// Letters of any script, not just a-z: stripping umlauts turned "über" into
+// "ber" and "schön" into "sch n", so half of a German sentence vanished from
+// the comparison before it had begun.
 const norm = (s: string) =>
   s
     .toLowerCase()
-    .replace(/[^a-z0-9' ]+/g, ' ')
+    .replace(/[^\p{L}\p{N}' ]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 
@@ -266,8 +269,11 @@ const norm = (s: string) =>
  * he happens to be saying. Suppressing "stop" because he just said "stop"
  * would be the single most infuriating failure this file could have.
  */
-const OVERRIDE =
-  /\b(stop|wait|jarvis|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no)\b/i
+const OVERRIDE = new RegExp(
+  `\\b(stop|stopp|wait|${NAME}|cancel|enough|quiet|hold on|shut up|never ?mind|forget it|no|` +
+    'warte|halt|abbrechen|abbruch|genug|ruhe|still|egal|vergiss es|nein|moment)\\b',
+  'i',
+)
 
 /**
  * Words too common to be evidence of anything.
@@ -284,7 +290,14 @@ const STOP = new Set(
     'our their what which who how why when where do does did can could would ' +
     'should will shall not no yes if then than as about into over under out up ' +
     'down one two three first second third now here there just very really got ' +
-    'get have has had say said tell me okay ok well right').split(' '),
+    'get have has had say said tell me okay ok well right ' +
+    // The German closed class, for the same reason.
+    'der die das den dem des und oder aber ist sind ich du er sie es wir ihr ' +
+    'mir dir mich dich sich ein eine einen einem einer nicht ja nein was wie wo ' +
+    'wann warum wer welche welcher auch noch nur schon mal jetzt hier da dort ' +
+    'sehr so zu zum zur von vom im an am auf für mit bei nach über aus bis dann ' +
+    'also doch denn kann hat habe haben wird werden war sein seine ihre ihrem ' +
+    'mein meine dein deine man eins zwei drei erste zweite sir gut okay').split(' '),
 )
 
 /**
@@ -294,7 +307,7 @@ const STOP = new Set(
  * mangles its own playback badly enough that a substring match rarely holds,
  * but the *words* survive.
  */
-function isEcho(heard: string, spoken: string): boolean {
+function isEcho(heard: string, spoken: string, strict = false): boolean {
   if (!spoken) return false
   if (OVERRIDE.test(heard)) return false
 
@@ -307,14 +320,20 @@ function isEcho(heard: string, spoken: string): boolean {
   // Nothing distinctive was said at all, so there is no strong evidence either
   // way. Demand a total match before discarding it — the cost of dropping a
   // real question is much higher than the cost of one stray echo getting in.
+  // Unless he is talking right now: then a handful of common words with
+  // nothing distinctive among them is far more likely his than yours.
   if (content.length < 2) {
-    if (all.length < 2) return false
-    return all.every((w) => mine.has(w))
+    if (all.length < 2) return strict
+    return strict || all.every((w) => mine.has(w))
   }
 
   let hits = 0
   for (const w of content) if (mine.has(w)) hits++
-  return hits / content.length >= 0.6
+  // While he is speaking the evidence bar drops: the recogniser mangles
+  // playback through a laptop microphone badly enough that fewer than six in
+  // ten words survive intact, and a real interruption still clears the lower
+  // bar easily — it is about something else, so it shares almost no words.
+  return hits / content.length >= (strict ? 0.4 : 0.6)
 }
 
 // ---------------------------------------------------------------------------
@@ -651,7 +670,7 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     const mode = h.mode()
     reset()
     if (!text || mode === 'deaf') return
-    if (isEcho(text, speakingNow())) {
+    if (isEcho(text, speakingNow(), mode === 'guard')) {
       drop('echo of his own voice')
       return
     }
@@ -700,7 +719,10 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     }
     const heard = `${settled}${fresh} ${interim}`.replace(/\s+/g, ' ').trim()
     if (!heard) return
-    if (isEcho(`${fresh} ${interim}`, speakingNow())) {
+    // Strict while he is actually talking (guard): that is when the microphone
+    // is hearing the speakers, and when a dropped real sentence costs least —
+    // the user can say it again the moment he stops.
+    if (isEcho(`${fresh} ${interim}`, speakingNow(), mode === 'guard')) {
       interim = ''
       return
     }
@@ -735,12 +757,12 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
             diag.selfGuarded++
             return
           }
-          // Two words before this engine believes an interruption. The energy
+          // Three words before this engine believes an interruption. The energy
           // path can be instant because it triggers on loudness the canceller
           // has already had a pass at; here the evidence is a transcript of
-          // audio that includes his own playback, and one word of that is not
-          // evidence of anything.
-          if (words < 2) return
+          // audio that includes his own playback, and a word or two of that is
+          // not evidence of anything — it is what leaks first.
+          if (words < 3) return
         }
       }
       started = true
@@ -760,7 +782,7 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
     rec = new Ctor()
     rec.continuous = true
     rec.interimResults = true
-    rec.lang = 'en-GB'
+    rec.lang = LANG
     rec.onstart = () => {
       running = true
       diag.running = true

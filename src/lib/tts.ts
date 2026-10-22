@@ -5,6 +5,8 @@ import {
   TTS_ENGINE,
   KOKORO_VOICE,
   BRIDGE_HTTP_URL,
+  LANG,
+  LANG_BASE,
 } from '../config'
 import * as kokoro from './kokoro'
 import { caps } from './capabilities'
@@ -51,7 +53,7 @@ let recentUntil = 0
 
 /** Recognition lags the speakers by a few hundred milliseconds, so a sentence
  *  keeps arriving at the microphone well after it has finished playing. */
-const ECHO_TAIL_MS = 1800
+const ECHO_TAIL_MS = 2500
 
 /**
  * Why you cannot hear him.
@@ -149,7 +151,7 @@ const SENTENCE_END = /([.!?]["'')\]”’]?\s)|(\n\n)/
 /** Full stops that are not sentence ends. Cutting on these puts an audible
  *  gap inside "Mr. Stark" and reads as a stutter. */
 const ABBREVIATION =
-  /(?:^|\s)(mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e|approx|inc|ltd|co|no|vol|fig|dept|est|min|max|hr|hrs|a\.m|p\.m|u\.s|u\.k|no)\.$/i
+  /(?:^|\s)(mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e|approx|inc|ltd|co|no|vol|fig|dept|est|min|max|hr|hrs|a\.m|p\.m|u\.s|u\.k|no|z\.b|d\.h|u\.a|bzw|ca|nr|hr|fr|usw|evtl|ggf|inkl|str|vgl|sog|bspw|ugs|geb|gest|tel|abs)\.$/i
 
 /**
  * Nobody punctuates forever, but a model occasionally writes a long clause
@@ -176,6 +178,8 @@ const VOICE_PREF_KEY = 'jarvis.voice'
 function score(v: SpeechSynthesisVoice): number {
   const n = v.name.toLowerCase()
   let s = 0
+
+  if (LANG_BASE === 'de') return scoreGerman(v, n)
 
   // The macOS British male, and the closest thing to the character available
   // without leaving the machine.
@@ -204,15 +208,49 @@ function score(v: SpeechSynthesisVoice): number {
   return s
 }
 
-/** Only voices that scored on a name match, not merely on being English —
- *  otherwise the picker cycles through a dozen US novelty voices. */
+/**
+ * The German male voices, best first.
+ *
+ * On Windows the win is Edge's "Online (Natural)" set: Conrad is a level
+ * baritone, Killian a touch younger. Both are neural voices streamed from
+ * Microsoft, so they need the network — the offline "Stefan" is the fallback
+ * that always exists, and Chrome's "Google Deutsch" is what Chrome ships.
+ */
+function scoreGerman(v: SpeechSynthesisVoice, n: string): number {
+  let s = 0
+  if (/\bconrad\b/.test(n)) s += 100
+  else if (/\bkillian\b/.test(n)) s += 90
+  else if (/\bflorian\b/.test(n)) s += 85
+  else if (/\bstefan\b/.test(n)) s += 70
+  else if (n.includes('google deutsch')) s += 65
+  else if (/\b(markus|michael|yannick|anna)\b/.test(n)) s += 45
+
+  if (n.includes('natural')) s += 20
+  else if (n.includes('premium') || n.includes('enhanced')) s += 15
+
+  if (/de[-_]de/i.test(v.lang)) s += 25
+  else if (/^de/i.test(v.lang)) s += 10
+
+  // Female-presenting names across the German sets.
+  if (/\b(katja|amala|hedda|elke|seraphina|louisa|maja|tanja|klarissa|vicki|petra|anna|ingrid|leni)\b/.test(n)) {
+    s -= 60
+  }
+  return s
+}
+
+/** Only voices that scored on a name match, not merely on being in the right
+ *  language — otherwise the picker cycles through a dozen novelty voices. */
 const USABLE = 40
+
+/** Voices in the language he speaks. */
+const inLang = (v: SpeechSynthesisVoice) =>
+  v.lang.toLowerCase().startsWith(LANG_BASE)
 
 /** Best-first list of usable voices — also what the voice picker cycles. */
 export function candidateVoices(): SpeechSynthesisVoice[] {
   return speechSynthesis
     .getVoices()
-    .filter((v) => /^en/i.test(v.lang))
+    .filter(inLang)
     .map((v) => ({ v, s: score(v) }))
     .filter((x) => x.s >= USABLE)
     .sort((a, b) => b.s - a.s)
@@ -236,7 +274,10 @@ function pickVoice(): SpeechSynthesisVoice | null {
     localStorage.removeItem(VOICE_PREF_KEY)
   }
 
-  cachedVoice = candidateVoices()[0] ?? all.find((v) => /^en/i.test(v.lang)) ?? null
+  // Any voice in the right language beats the best voice in the wrong one: a
+  // German sentence read by an English voice is unintelligible, not merely
+  // off-character.
+  cachedVoice = candidateVoices()[0] ?? all.find(inLang) ?? null
   return cachedVoice
 }
 
@@ -477,7 +518,7 @@ export function createSpeaker(): Speaker {
       const u = new SpeechSynthesisUtterance(text)
       const voice = pickVoice()
       if (voice) u.voice = voice
-      u.lang = voice?.lang ?? 'en-GB'
+      u.lang = voice?.lang ?? LANG
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.

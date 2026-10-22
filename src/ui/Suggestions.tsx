@@ -12,16 +12,16 @@ import { useStore } from '../store'
  * Each line is phrased the way you'd actually say it, not as a feature name.
  */
 const EXAMPLES = [
-  'what happened in AI this week',
-  'generate an image of the Mark Seven suit',
-  'take a screenshot of my phone',
-  "what's on my calendar tomorrow",
-  'search for the best coffee near me',
-  'read me the top story on Hacker News',
-  'open my GitHub notifications',
-  "summarise what's in my inbox",
-  'find me a loading animation',
-  "what's the weather looking like",
+  'was ist diese Woche in der KI-Welt passiert',
+  'wie spät ist es',
+  'was steht morgen in meinem Kalender',
+  'such mir den besten Kaffee in der Nähe',
+  'lies mir die Top-Meldung von Hacker News vor',
+  'öffne meine GitHub-Benachrichtigungen',
+  'fass zusammen, was in meinem Posteingang ist',
+  'wie wird das Wetter',
+  'zeig mir, was auf meinem Bildschirm ist',
+  'such die Datei mit meinen Notizen',
 ]
 
 const ROTATE_MS = 4200

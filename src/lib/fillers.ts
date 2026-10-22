@@ -5,13 +5,14 @@
  * JARVIS says something the instant work starts — then goes quiet until he has
  * an answer. One acknowledgement, no progress chatter.
  *
- * The phrasing follows the character's actual grammar rather than generic
- * assistant-speak, which matters more than it sounds:
+ * German, like the rest of what he says. The phrasing follows the character's
+ * grammar rather than generic assistant-speak, which matters more than it
+ * sounds:
  *
- *   - Working lines are subjectless present participles: "Compiling.",
- *     "Cross-referencing." Not "I'm now checking" and never "let me".
- *   - There is no snap-to compliance formula. "Right away" and "At once" are
- *     not in his vocabulary; acknowledgement is deferential, not eager.
+ *   - Working lines are subjectless and clipped: "Wird geprüft.", "Suche."
+ *     Not "Ich schaue jetzt nach" and never "Lassen Sie mich".
+ *   - No snap-to compliance formula. "Sofort" and "Auf der Stelle" are not in
+ *     his vocabulary; acknowledgement is deferential, not eager.
  *   - No filler words, no enthusiasm, no apology, no exclamation marks.
  *   - "Sir" fronted means urgency; final means routine. These are all routine,
  *     so it goes at the end, and only sometimes.
@@ -19,33 +20,33 @@
 
 /** Said as soon as the first tool fires, before any answer exists. */
 const WORKING = [
-  'Working on it, sir.',
-  'Compiling.',
-  'Retrieving.',
-  'Accessing the archive.',
-  'Cross-referencing.',
-  'Running the query now.',
-  'Searching.',
-  'Under way.',
+  'Einen Moment, Sir.',
+  'Wird geprüft.',
+  'Rufe die Daten ab.',
+  'Greife auf das Archiv zu.',
+  'Gleiche ab.',
+  'Die Abfrage läuft.',
+  'Suche.',
+  'In Arbeit.',
 ]
 
 /** Acknowledging an order where no tool is involved. */
 const ACKNOWLEDGE = [
-  'As you wish, sir.',
-  'Very good, sir.',
-  'Certainly.',
-  'Understood.',
-  'Consider it done.',
-  'Directly, sir.',
+  'Wie Sie wünschen, Sir.',
+  'Sehr wohl, Sir.',
+  'Selbstverständlich.',
+  'Verstanden.',
+  'Wird erledigt.',
+  'Umgehend, Sir.',
 ]
 
 /** Answering to his name, before the user has said what they want. */
 const ATTENTION = [
-  'Yes, sir?',
+  'Ja, Sir?',
   'Sir?',
-  'At your service, sir.',
-  'Standing by.',
-  'Awake, sir.',
+  'Zu Diensten, Sir.',
+  'Bereit.',
+  'Ich höre, Sir.',
 ]
 
 /**
@@ -69,7 +70,7 @@ export const attention = makePicker(ATTENTION)
 
 /**
  * Naming the task is warmer than a generic acknowledgement and shows the
- * integration off on camera. Still participial, still under five words.
+ * integration off on camera. Still clipped, still under five words.
  *
  * MCP tool names are `mcp__<server>__<tool>`, and the two halves say different
  * things: the server is who is being asked, the tool is what is being asked
@@ -91,60 +92,60 @@ type Rule = {
   lines: string[]
 }
 
-const FOOTAGE = ['Assembling the footage.', 'Rendering the sequence.']
+const FOOTAGE = ['Schneide das Material.', 'Rendere die Sequenz.']
 
 const BY_TOOL: Rule[] = [
   // Video sits above image because higgsfield and palmier both do either, so
   // the verb in the tool name is the only thing separating them — a rule on the
-  // server alone would send every generate_video to "Rendering."
+  // server alone would send every generate_video to "Rendere."
   { tool: /video|footage|\bclip\b|\breel\b|talking_head/, lines: FOOTAGE },
   {
     server: /higgsfield|openrouter-image|dalle|flux|midjourney/,
     tool: /image|photo|thumbnail|render|upscale|seedream/,
-    lines: ['Rendering.', 'Composing it now.'],
+    lines: ['Rendere.', 'Wird komponiert.'],
   },
   // The editors, once the two rules that read the verb have had their turn.
   { server: /palmier|heygen|runway|descript/, lines: FOOTAGE },
   {
     server: /playwright|puppeteer|browserbase|chrome/,
     tool: /\bbrowser\b|navigate/,
-    lines: ['Opening the browser.', 'Navigating.'],
+    lines: ['Öffne den Browser.', 'Navigiere.'],
   },
   {
     server: /android|\badb\b|simulator/,
     tool: /\bdevice\b|\bapk\b|\bphone\b/,
-    lines: ['Reaching the device.', 'Connecting to your phone.'],
+    lines: ['Verbinde mit dem Gerät.', 'Greife auf Ihr Telefon zu.'],
   },
   {
     server: /gmail|\bmail\b/,
     tool: /gmail|\bmail\b|email|inbox/,
-    lines: ['Checking your mail.', 'Reading the inbox.'],
+    lines: ['Prüfe Ihre Mails.', 'Lese den Posteingang.'],
   },
   // Calendar keys off "calendar" alone. "event" used to live here, which is how
   // a Mixpanel event query came out as "Checking your calendar."
   {
     tool: /calendar|\bdiary\b|\bmeeting\b/,
-    lines: ['Checking your calendar.', 'Consulting the diary.'],
+    lines: ['Prüfe Ihren Kalender.', 'Sehe im Terminplan nach.'],
   },
   {
     server: /elevenlabs|openai-tts/,
     tool: /speech|\bvoice\b|\btts\b|text_to_sound/,
-    lines: ['Synthesising.', 'Working on it, sir.'],
+    lines: ['Synthetisiere.', 'Einen Moment, Sir.'],
   },
   {
     server: /spotify|sonos/,
     tool: /\bplay\b|\bmusic\b|playlist|\btrack\b/,
-    lines: ['Queuing it up.', 'Putting it on.'],
+    lines: ['Stelle es in die Warteschlange.', 'Lege es auf.'],
   },
   {
     server: /^home|homeassistant|\bhue\b|\bhass\b/,
     tool: /\blights?\b|thermostat|\bdimmer\b/,
-    lines: ['Adjusting it now.', 'Seeing to it, sir.'],
+    lines: ['Wird eingestellt.', 'Kümmere mich darum, Sir.'],
   },
   {
     server: /github|linear|jira|sentry/,
     tool: /\brepo\b|repository|\bissues?\b|pull_request|\bcommit\b/,
-    lines: ['Checking the repository.', 'Consulting the tracker.'],
+    lines: ['Prüfe das Repository.', 'Sehe im Tracker nach.'],
   },
   // Also where the anonymously named analytics servers land — theirs are bare
   // UUIDs, so only the tool half says anything: Get-Report, Get-Events,
@@ -153,12 +154,12 @@ const BY_TOOL: Rule[] = [
   {
     server: /mixpanel|clarity|posthog|amplitude/,
     tool: /analytic|\bmetrics?\b|\breports?\b|\bevents?\b|cohort|funnel|dashboard|\bquery\b/,
-    lines: ['Running the query.', 'Pulling the figures.'],
+    lines: ['Führe die Abfrage aus.', 'Ziehe die Zahlen.'],
   },
   {
     server: /\bexa\b|serper|serpapi|perplexity|tavily|brave/,
     tool: /search|\bweb\b|\bfetch\b|crawl|research/,
-    lines: ['Searching.', 'Consulting the record.'],
+    lines: ['Suche.', 'Sehe in den Aufzeichnungen nach.'],
   },
 ]
 

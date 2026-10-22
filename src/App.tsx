@@ -32,6 +32,7 @@ import {
   type Msg,
 } from './lib/brain'
 import { settleConfirm, CONFIRM_PHRASE, DECLINE_PHRASE } from './lib/confirm'
+import { NAME, PREFIX } from './lib/name'
 import { startAnalyser, micLevel } from './lib/audio'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
@@ -64,13 +65,12 @@ const newId = () =>
   globalThis.crypto?.randomUUID?.() ??
   `id${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 
-/** The same mishearings voice.ts accepts for the wake word — otherwise a turn
- *  that woke him as "travis" gets that word sent on to the model as a question. */
-const NAME = '(?:jarvis|jarvys|jervis|travis|jarviss|java\'s|jarv)'
-/** A bare vocative — "Jarvis", "hey jarvis" — with nothing asked. */
-const BARE_NAME = new RegExp(`^(?:hey|hi|ok|okay|yo)?\\s*${NAME}[\\s,.!?]*$`, 'i')
-/** A leading vocative on a real command: "Jarvis, what's the weather". */
-const LEADING_NAME = new RegExp(`^(?:hey|hi|ok|okay|yo)?\\s*${NAME}\\b[\\s,.:!?-]*`, 'i')
+/** A bare vocative — "Jarvis", "hey jarvis" — with nothing asked. The same
+ *  mishearings voice.ts accepts for the wake word, otherwise a turn that woke
+ *  him as "travis" gets that word sent on to the model as a question. */
+const BARE_NAME = new RegExp(`^${PREFIX}\\s*${NAME}[\\s,.!?]*$`, 'i')
+/** A leading vocative on a real command: "Jarvis, wie wird das Wetter". */
+const LEADING_NAME = new RegExp(`^${PREFIX}\\s*${NAME}\\b[\\s,.:!?-]*`, 'i')
 
 export default function App() {
   const store = useStore
@@ -488,11 +488,11 @@ export default function App() {
     // on screen still shows it. Better to say so than to let him quietly forget.
     watchConnection((state) => {
       if (state === 'lost') {
-        store.getState().setError('Bridge connection lost — reconnecting.')
+        store.getState().setError('Verbindung zur Bridge verloren — verbinde neu.')
       } else if (state === 'reconnected') {
         store
           .getState()
-          .setError('Bridge reconnected. The previous conversation was not kept.')
+          .setError('Bridge wieder verbunden. Das bisherige Gespräch ist nicht erhalten.')
       }
     })
     const warming = warm().catch((err: Error) => s.setError(err.message))
@@ -645,7 +645,7 @@ export default function App() {
         silence()
         const demo = createSpeaker()
         speaker.current = demo
-        demo.say(`Voice set to ${name.replace(/\(.*?\)/g, '').trim()}. At your service, sir.`)
+        demo.say(`Stimme auf ${name.replace(/\(.*?\)/g, '').trim()} gestellt. Zu Diensten, Sir.`)
         void demo.end()
         return
       }
@@ -687,7 +687,7 @@ export default function App() {
         silence()
         const t = createSpeaker()
         speaker.current = t
-        t.say('Audio test. If you can hear this, speech output is working, sir.')
+        t.say('Audiotest. Wenn Sie das hören, funktioniert die Sprachausgabe, Sir.')
         void t.end().then(() => {
           const d = (window as unknown as Record<string, Record<string, unknown>>).__tts
           console.info('[jarvis] audio test →', d)

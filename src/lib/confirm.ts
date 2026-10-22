@@ -29,7 +29,7 @@ export function settleConfirm(approved: boolean, via: ConfirmVia): boolean {
  * and the English form are accepted while the recogniser still runs in
  * English; the same mishearings of his name as the wake word are allowed.
  */
-const NAME = "(?:jarvis|jarvys|jervis|travis|jarviss|java's|jarv)"
+import { NAME } from './name'
 export const CONFIRM_PHRASE = new RegExp(
   `\\b${NAME}\\b[\\s,.:!?-]*(?:ausführen|ausfuehren|execute)\\b`,
   'i',

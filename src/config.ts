@@ -75,6 +75,16 @@ export const BRIDGE_WS_URL = str(import.meta.env.VITE_BRIDGE_URL) ?? 'ws://local
 export const BRIDGE_HTTP_URL = BRIDGE_WS_URL.replace(/^ws/, 'http')
 
 /**
+ * The language he listens in and speaks. A BCP-47 tag, handed to the browser's
+ * SpeechRecognition and used to rank speechSynthesis voices. German by
+ * default; the persona in bridge/server.mjs answers in German regardless, so
+ * this only decides what the ears and the voice do.
+ */
+export const LANG = str(import.meta.env.VITE_JARVIS_LANG) ?? 'de-DE'
+/** `de` for de-DE, `en` for en-GB — what voices and word lists key on. */
+export const LANG_BASE = LANG.split('-')[0].toLowerCase()
+
+/**
  * Speech output engine.
  *
  * false (default) — the browser's own speechSynthesis. Runs on-device, so
