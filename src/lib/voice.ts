@@ -276,7 +276,7 @@ const norm = (s: string) =>
  */
 const OVERRIDE = new RegExp(
   `\\b(stop|stopp|halt|wait|warte|${NAME}|cancel|abbrechen|abbruch|hold on|shut up|` +
-    'never ?mind|forget it|vergiss es)\\b',
+    'never ?mind|forget it|vergiss es|aufhören|aufhoeren|hör auf|sei still|leise|ruhe|stille)\\b',
   'i',
 )
 
@@ -746,10 +746,14 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
         lastWake = Date.now()
         diag.wakes++
         const trailing = afterWake(heard)
+        console.debug(`[voice] woke on "${heard}"`)
         reset()
         h.onWake(trailing)
-      } else if (settled.length > 400) {
-        settled = ''
+      } else {
+        // Every transcript that did not wake him, so "the wake word stopped
+        // working" can be read off the console as what was actually heard.
+        if (fresh) console.debug(`[voice] standby, not his name: "${heard}"`)
+        if (settled.length > 400) settled = ''
       }
       return
     }
@@ -777,6 +781,10 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
         const audible = speakingNow() !== ''
         if (audible && !OVERRIDE.test(full)) {
           diag.selfGuarded++
+          console.debug(`[voice] over him, ignored: "${full}"`)
+          // Say on screen why nothing happened, so talking over him does not
+          // look like deafness. Cleared the moment he starts listening again.
+          h.onPartial('„Jarvis“ oder „Stopp“ unterbricht ihn')
           // Forget it entirely, or the fragment would be glued to the front
           // of whatever the user really says once he has finished.
           settled = ''

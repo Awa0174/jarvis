@@ -7,6 +7,7 @@ import {
   BRIDGE_HTTP_URL,
   LANG,
   LANG_BASE,
+  PREFERRED_VOICE,
 } from '../config'
 import * as kokoro from './kokoro'
 import { caps } from './capabilities'
@@ -195,7 +196,10 @@ function score(v: SpeechSynthesisVoice): number {
   const n = v.name.toLowerCase()
   let s = 0
 
-  if (LANG_BASE === 'de') return scoreGerman(v, n)
+  // The one that was chosen stays chosen, whatever else is installed.
+  if (PREFERRED_VOICE && n.includes(PREFERRED_VOICE)) s += 300
+
+  if (LANG_BASE === 'de') return s + scoreGerman(v, n)
 
   // The macOS British male, and the closest thing to the character available
   // without leaving the machine.

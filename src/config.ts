@@ -85,6 +85,14 @@ export const LANG = str(import.meta.env.VITE_JARVIS_LANG) ?? 'de-DE'
 export const LANG_BASE = LANG.split('-')[0].toLowerCase()
 
 /**
+ * The voice, by a fragment of its name, case-insensitive. Whatever matches
+ * ranks above every other candidate; if nothing matches, the ranking in
+ * tts.ts decides. Edge's "Andrew Multilingual" reads German cleanly and is
+ * the one that was chosen on this machine.
+ */
+export const PREFERRED_VOICE = (str(import.meta.env.VITE_JARVIS_VOICE) ?? 'andrew multilingual').toLowerCase()
+
+/**
  * Speech output engine.
  *
  * false (default) — the browser's own speechSynthesis. Runs on-device, so
