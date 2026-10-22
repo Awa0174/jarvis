@@ -146,7 +146,10 @@ async function* questions() {
     if (text == null) return
     yield {
       type: 'user',
-      message: { role: 'user', content: text },
+      // Framed as a thing to classify, never as a request: without the
+      // wrapper a question about the calendar is a question about the
+      // calendar, and the voter tried to answer it.
+      message: { role: 'user', content: `Einordnen, nicht beantworten. Anfrage: «${text}»\nAntwort (ein Wort):` },
       parent_tool_use_id: null,
     }
   }
@@ -172,7 +175,12 @@ function openSession() {
       model: ROUTER_MODEL,
       systemPrompt: CLASSIFIER_PROMPT,
       // No tools, no servers, no settings: the vote is one word of text.
+      // The claude.ai connectors (Gmail, Calendar) arrive regardless of the
+      // empty server map — measured: the voter once answered the question
+      // about the calendar instead of voting — so every MCP tool is barred
+      // by name as well.
       tools: [],
+      disallowedTools: ['mcp__*'],
       mcpServers: {},
       settingSources: [],
       effort: 'low',
