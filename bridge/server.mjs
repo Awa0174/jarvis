@@ -25,6 +25,7 @@ import { serversServer, loadServers, SERVERS_FILE } from './servers.mjs'
 import { dailyServer, setDailyTransport, startDaily, onClientConnected, LOCATION, BRIEFING_AT } from './daily.mjs'
 import { mailServer, mailConfigured } from './mail.mjs'
 import { salesServer, profilePrompt, BUSINESS_DIR } from './sales.mjs'
+import { researchServer } from './research.mjs'
 import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
@@ -339,6 +340,8 @@ function classifyTool(name) {
     // server sends, posts or publishes; what leaves the machine goes through
     // the Gmail connector and the card.
     if (server === 'jarvis_sales') return 'read'
+    // Looking up businesses in a public map and reading a website: reads.
+    if (server === 'jarvis_research') return 'read'
 
     // The user's servers: status and logs read, a command or a restart
     // changes something and goes through the card with the command on it.
@@ -704,11 +707,27 @@ davon verlässt den Rechner:
 - Geschäftsprofil: fehlen Punkte, biete an, sie im Gespräch festzulegen, eine
   Frage nach der anderen, und speichere jede Antwort mit profile_set. Ohne
   Angebot und Zielgruppe keine Recherche und keine Texte.
-- Recherche: Unternehmen aus erlaubten Quellen (Websuche, die Browserwerkzeuge)
-  oder aus Listen des Nutzers. Zu jedem: lead_add mit Quelle und Datum, in
-  Belege nur, was du wirklich gesehen hast („auf der Kontaktseite kein
-  Formular, geprüft am …“), in Offen alles Unsichere. Danach lead_score mit
-  Begründung; die Punkte sind Reihenfolge, keine Kaufwahrscheinlichkeit.
+- Recherche, so: businesses_nearby holt Betriebe eines Orts oder Kreises aus
+  OpenStreetMap; für jeden Kandidaten website_check (oder WebSearch, wenn in
+  OSM keine Website steht, dann website_check auf das Gefundene). Dann
+  lead_add mit Quelle („OpenStreetMap, Stand …“ bzw. die Seitenadresse) und
+  Datum; in Belege nur Beobachtungen aus website_check, wörtlich wie
+  geliefert („kein Kontaktformular, Copyright 2016, nicht mobil, geprüft am
+  …“); in Offen alles Unsichere („Website in OSM nicht eingetragen, Suche
+  ergab nichts“). Danach lead_score mit Begründung; die Punkte sind
+  Reihenfolge, keine Kaufwahrscheinlichkeit. Fünf bis zehn gut belegte
+  Kontakte je Lauf, nicht fünfzig flache. Die Kapazität im Profil begrenzt,
+  wie viele du insgesamt als „nächster Schritt“ vorschlägst.
+- Was die Beobachtungen bedeuten, sagst du als deine Einordnung: keine
+  Website, oder keine Viewport-Angabe, Copyright älter als drei Jahre,
+  kein Kontaktformular, http statt https, Flash oder Tabellen-Layout, sind
+  die Zeichen, auf die das Angebot zielt. Große Marken und Ketten lässt du
+  weg; der Kunde ist der Betrieb vor Ort.
+- Ansprache vor Ort: Werbemails ohne Einwilligung sind nicht erlaubt. Für
+  Betriebe ohne Einwilligung schlägst du Anruf, Besuch oder Brief vor und
+  legst dafür mit draft_save einen „gesprächszettel“ an: Betrieb, was du
+  gesehen hast, der eine Satz, warum es sich lohnt, zwei Fragen, das
+  Angebot mit Preis. Keinen Mailentwurf für Kaltkontakte.
 - Kontaktberechtigung ist vom Recherchieren getrennt. Werbliche Mails brauchen
   eine vorherige Einwilligung; eine öffentliche Adresse ist keine. Eine
   Ansprache schlägst du nur vor, wenn consent für den Kanal gesetzt ist und der
@@ -1680,6 +1699,8 @@ wss.on('connection', (socket) => {
         jarvis_daily: dailyServer(),
         // Customer acquisition: profile, knowledge, contacts, tasks, drafts.
         jarvis_sales: salesServer(),
+        // Research: businesses from OpenStreetMap, websites checked.
+        jarvis_research: researchServer(),
         // The mailbox over IMAP, read-only — only when credentials exist.
         // Offered unconfigured, it was one more thing for him to report as
         // "not set up" while the Gmail connector sat right beside it.

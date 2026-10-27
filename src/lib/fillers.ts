@@ -110,6 +110,8 @@ const BY_TOOL: Rule[] = [
   { server: /^jarvis_sales$/, tool: /knowledge/, lines: ['Sehe in der Wissensbasis nach.'] },
   { server: /^jarvis_sales$/, tool: /pipeline|task/, lines: ['Prüfe die Übersicht.', 'Sehe nach, was ansteht.'] },
   { server: /^jarvis_sales$/, lines: ['Trage es ein.', 'Einen Moment.'] },
+  { server: /^jarvis_research$/, tool: /businesses/, lines: ['Suche die Betriebe heraus.', 'Durchsuche die Karte.'] },
+  { server: /^jarvis_research$/, tool: /website/, lines: ['Sehe mir die Seite an.', 'Prüfe die Website.'] },
   { server: /^jarvis_servers$/, tool: /server[ _]logs/, lines: ['Lese das Protokoll.', 'Gehe die Logs durch.'] },
   { server: /^jarvis_servers$/, tool: /server[ _](run|restart)/, lines: ['Wird ausgeführt.', 'Führe aus.'] },
   { server: /^jarvis_servers$/, lines: ['Frage den Server ab.', 'Prüfe den Server.'] },
