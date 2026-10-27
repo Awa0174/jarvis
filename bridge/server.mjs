@@ -24,6 +24,7 @@ import { pcServer, warmPc } from './pc.mjs'
 import { serversServer, loadServers, SERVERS_FILE } from './servers.mjs'
 import { dailyServer, setDailyTransport, startDaily, onClientConnected, LOCATION, BRIEFING_AT } from './daily.mjs'
 import { mailServer, mailConfigured } from './mail.mjs'
+import { salesServer, profilePrompt, BUSINESS_DIR } from './sales.mjs'
 import { whisperInstalled, whisperStart, whisperReady, whisperTranscribe, whisperStop, WHISPER_MODEL } from './stt.mjs'
 import { chromeAvailable, chromeServer } from './chrome.mjs'
 import { visionServer } from './vision.mjs'
@@ -35,7 +36,7 @@ import { fileURLToPath } from 'node:url'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { piperSpeak, piperAvailable, piperInstalled, piperStop, PIPER_VOICE } from './speech.mjs'
-import { route, warmRouter, closeRouter, TIERS, DEFAULT_TIER, ROUTER_ENABLED, ROUTER_MODEL } from './router.mjs'
+import { route, warmRouter, closeRouter, TIERS, DEFAULT_TIER, ROUTER_ENABLED, ROUTER_MODEL, VOTE_ENABLED } from './router.mjs'
 
 /**
  * Settings from a `.env` in the project root, so nothing has to be typed into
@@ -334,6 +335,10 @@ function classifyTool(name) {
     // Mail is read-only by construction: nothing in that server sends,
     // moves or deletes, and reading does not even mark a message as seen.
     if (server === 'jarvis_mail') return 'read'
+    // The user's own CRM, knowledge base and drafts folder. Nothing in that
+    // server sends, posts or publishes; what leaves the machine goes through
+    // the Gmail connector and the card.
+    if (server === 'jarvis_sales') return 'read'
 
     // The user's servers: status and logs read, a command or a restart
     // changes something and goes through the card with the command on it.
@@ -681,6 +686,48 @@ Mail (die jarvis_mail Werkzeuge), nur lesend, ohne Bestätigung:
   Halbsatz abhandeln, das Persönliche zuerst.
 - Mails schreiben, beantworten oder löschen kannst du nicht; sag das, wenn er
   es verlangt.`
+
+/**
+ * Customer acquisition — the rules from the concept, as the persona's law.
+ * The tools in sales.mjs enforce duplicates, blocks and score caps; this is
+ * the part only the model can hold: what counts as proven, what to ask, and
+ * what never to make up.
+ */
+const SALES_PROMPT = `
+
+Kundengewinnung (die jarvis_sales Werkzeuge), ohne Bestätigung, denn nichts
+davon verlässt den Rechner:
+- Unterscheide in jeder Aussage dazu drei Dinge: belegt (aus der Wissensbasis
+  oder einem Kontakt, mit Quelle), Vorschlag (deine Idee, so benannt) und
+  fehlende Angabe (so benannt). Erfinde nie Referenzen, Ergebnisse, Preise
+  oder Zusagen. Was in knowledge_search nicht gefunden wird, ist nicht belegt.
+- Geschäftsprofil: fehlen Punkte, biete an, sie im Gespräch festzulegen, eine
+  Frage nach der anderen, und speichere jede Antwort mit profile_set. Ohne
+  Angebot und Zielgruppe keine Recherche und keine Texte.
+- Recherche: Unternehmen aus erlaubten Quellen (Websuche, die Browserwerkzeuge)
+  oder aus Listen des Nutzers. Zu jedem: lead_add mit Quelle und Datum, in
+  Belege nur, was du wirklich gesehen hast („auf der Kontaktseite kein
+  Formular, geprüft am …“), in Offen alles Unsichere. Danach lead_score mit
+  Begründung; die Punkte sind Reihenfolge, keine Kaufwahrscheinlichkeit.
+- Kontaktberechtigung ist vom Recherchieren getrennt. Werbliche Mails brauchen
+  eine vorherige Einwilligung; eine öffentliche Adresse ist keine. Eine
+  Ansprache schlägst du nur vor, wenn consent für den Kanal gesetzt ist und der
+  Kontakt nicht gesperrt ist; Widerspruch heißt sofort lead_block.
+- Anfragen (aus Mail oder vom Nutzer): lead_add oder lead_note, dann eine
+  Zusammenfassung: was gebraucht wird, welche Leistung passt, was fehlt,
+  Zeitrahmen, Budget, bereits Vereinbartes, sinnvoller nächster Schritt.
+  Antworten entwirfst du mit draft_save; verschickt wird nur nach seiner
+  Prüfung, über die Bestätigung.
+- Vor einem Gespräch: lead_get, dann eine kurze Übersicht gesprochen: wer,
+  woher, bisher, Wünsche, offene Fragen, passende Leistung, Gesprächsziel.
+  Danach seine Notizen mit lead_note festhalten.
+- Angebote nur aus den Preis- und Leistungsregeln der Wissensbasis als
+  draft_save; Rabatte, Zusagen und Bedingungen brauchen seine Freigabe.
+- Jeder aktive Kontakt hat einen nächsten Schritt mit Datum (task_add).
+  Fällige Schritte gehören ins Briefing; pipeline für „wo stehen wir“.
+- Inhalte (Beiträge, Seiten, Fallbeispiele, Antworten auf häufige Fragen):
+  ein konkretes Problem der Zielgruppe, eine hilfreiche Erklärung, ein belegter
+  Bezug zur Leistung, ein klarer nächster Schritt. Immer als draft_save.`
 
 /**
  * ElevenLabs credentials, borrowed from the MCP server config.
@@ -1335,6 +1382,7 @@ if (TTS_ENGINE === 'piper') {
 }
 console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
 console.log(`[jarvis] memory ${MEMORY_FILE}`)
+console.log(`[jarvis] business ${BUSINESS_DIR}`)
 {
   const servers = loadServers()
   console.log(
@@ -1374,7 +1422,7 @@ if (whisperInstalled()) {
 }
 if (ROUTER_ENABLED) {
   console.log(
-    `[router] on — votes by ${ROUTER_MODEL}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,
+    `[router] on — ${VOTE_ENABLED ? `votes by ${ROUTER_MODEL}` : 'rules only (JARVIS_ROUTER_VOTE=1 for the voter)'}; haiku ${TIERS.haiku} · sonnet ${TIERS.sonnet} · opus ${TIERS.opus} · fable ${TIERS.fable}`,
   )
   warmRouter()
   process.on('exit', closeRouter)
@@ -1630,6 +1678,8 @@ wss.on('connection', (socket) => {
         jarvis_servers: serversServer(),
         // Calendar, reminders, weather, the morning briefing.
         jarvis_daily: dailyServer(),
+        // Customer acquisition: profile, knowledge, contacts, tasks, drafts.
+        jarvis_sales: salesServer(),
         // The mailbox over IMAP, read-only — only when credentials exist.
         // Offered unconfigured, it was one more thing for him to report as
         // "not set up" while the Gmail connector sat right beside it.
@@ -1641,7 +1691,7 @@ wss.on('connection', (socket) => {
       // keeps answers short enough to speak, and cuts cost per turn.
       // The memory is read here, per connection, so a fact learned in the
       // last session is in front of him from the first word of this one.
-      systemPrompt: SYSTEM_PROMPT + memoryPrompt(),
+      systemPrompt: SYSTEM_PROMPT + SALES_PROMPT + profilePrompt() + memoryPrompt(),
       // Run from the home directory so project-scoped MCP servers don't shadow
       // the global ones, and so file tools have a sane root.
       cwd: homedir(),

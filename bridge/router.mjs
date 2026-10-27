@@ -33,6 +33,15 @@ export const ROUTER_MODEL = process.env.JARVIS_MODEL_ROUTER ?? TIERS.haiku
 export const DEFAULT_TIER = valid((process.env.JARVIS_DEFAULT_TIER ?? '').toLowerCase()) ?? 'sonnet'
 /** JARVIS_ROUTER=0 pins every turn to JARVIS_MODEL, as before. */
 export const ROUTER_ENABLED = process.env.JARVIS_ROUTER !== '0'
+/**
+ * JARVIS_ROUTER_VOTE=1 asks the voter model for the tier of anything the
+ * rules do not settle. Off by default: measured on this machine, one
+ * round trip through the Agent SDK costs three to four seconds even for a
+ * one-word answer from Haiku with no tools at all, and that sat in front of
+ * every answer. The keyword estimate below is instant and lands the same
+ * tier for the questions seen so far.
+ */
+export const VOTE_ENABLED = process.env.JARVIS_ROUTER_VOTE === '1'
 /** A vote slower than this is not worth waiting for. */
 const VOTE_TIMEOUT_MS = Number(process.env.JARVIS_ROUTER_TIMEOUT_MS ?? 4000)
 /** Recycle the classifier session after this many votes. */
@@ -103,9 +112,28 @@ function byRule(text) {
   return null
 }
 
-/** Words that mean a short question still deserves the vote. */
+/** Words that mean a short question still deserves more than haiku. */
 const HEAVY =
   /\b(code|skript|script|programm(ier)?|lua|python|javascript|java|docker|ssh|server|log|logs|fehler|error|bug|absturz|crash|architektur|analys|plan|strategie|vergleich|erklär|warum|beweis|komplex|server-?wächter)\w*/i
+
+/** The opus tier: code, servers, failures, anything with many moving parts. */
+const OPUS_WORDS =
+  /\b(code|skript|script|programm(ier)?|lua|python|javascript|typescript|java|docker|ssh|server|log|logs|fehler|error|bug|absturz|crash|exception|traceback|stack|debug|konfig|config|datenbank|sql|api|deploy|install)\w*/i
+/** The fable tier: the genuinely hard, open-ended ones. */
+const FABLE_WORDS =
+  /\b(architektur|strategie|konzept|roadmap|entwurf|design|abwäg|entscheid|komplex|gründlich|ausführlich|tiefgehend|beweis|forschung|analysiere? (?:das|den|die) ganze)\w*/i
+
+/**
+ * The tier a question gets when no rule applied and the voter is off:
+ * sonnet by default, opus for the technical, fable for the hard and the
+ * long. Instant, and tuned on the questions that actually came through.
+ */
+function guessTier(text) {
+  const n = words(text)
+  if (FABLE_WORDS.test(text) && (n > 12 || OPUS_WORDS.test(text))) return 'fable'
+  if (OPUS_WORDS.test(text) || n > 45) return 'opus'
+  return DEFAULT_TIER
+}
 
 // ---------------------------------------------------------------------------
 // The vote
@@ -182,6 +210,9 @@ function openSession() {
       tools: [],
       disallowedTools: ['mcp__*'],
       mcpServers: {},
+      // And no other MCP source either — the claude.ai connectors were being
+      // dialled on every classifier turn, which tripled the vote's latency.
+      strictMcpConfig: true,
       settingSources: [],
       effort: 'low',
       cwd: homedir(),
@@ -259,8 +290,12 @@ export async function route(text) {
   if (rule) {
     return { ...rule, model: rule.local ? 'bridge' : TIERS[rule.tier], ms: Date.now() - t0 }
   }
+  if (!VOTE_ENABLED) {
+    const tier = guessTier(text)
+    return { tier, model: TIERS[tier], reason: tier === DEFAULT_TIER ? 'rule:default' : 'rule:heavy', text, ms: Date.now() - t0 }
+  }
   const voted = await vote(text)
-  const tier = voted ?? DEFAULT_TIER
+  const tier = voted ?? guessTier(text)
   return {
     tier,
     model: TIERS[tier],
@@ -270,10 +305,19 @@ export async function route(text) {
   }
 }
 
-/** Open the classifier at boot, so the first question does not pay for it. */
+/**
+ * Open the classifier at boot and put one throwaway question to it, so the
+ * first real vote does not pay for the process start and the model's first
+ * turn — measured at just over the four-second timeout, which sent the
+ * first question of every session to the default tier.
+ */
 export function warmRouter() {
-  if (!ROUTER_ENABLED) return
+  if (!ROUTER_ENABLED || !VOTE_ENABLED) return
   if (!session) openSession()
+  const t0 = Date.now()
+  void vote('Wie spät ist es?').then((tier) => {
+    console.log(`[router] warm: first vote took ${Date.now() - t0}ms → ${tier ?? 'no tier'}`)
+  })
 }
 
 export function closeRouter() {

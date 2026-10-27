@@ -27,6 +27,7 @@ import ical from 'node-ical'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { dueSalesItems } from './sales.mjs'
 
 const DIR = join(homedir(), '.jarvis')
 const REMINDERS_FILE = process.env.JARVIS_REMINDERS_FILE ?? join(DIR, 'reminders.json')
@@ -237,6 +238,13 @@ export async function briefingBundle() {
       ? `Erinnerungen heute:\n${rem.map((r) => `${fmtTime(new Date(r.at))}: ${r.text}`).join('\n')}`
       : 'Erinnerungen heute: keine.',
   )
+  // Sales follow-ups due today belong in the morning briefing too.
+  try {
+    const sales = dueSalesItems()
+    if (sales) parts.push(sales)
+  } catch (err) {
+    console.warn(`[daily] sales items unavailable: ${err?.message ?? err}`)
+  }
   return parts.join('\n\n')
 }
 

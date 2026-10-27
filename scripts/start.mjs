@@ -57,14 +57,43 @@ const paint = (tag, colour) => (line) =>
 
 const children = []
 
+/**
+ * Everything both halves print also goes to ~/.jarvis/logs/jarvis-<date>.log,
+ * because the console window is not always there to read: Jarvis runs in
+ * its own window now, and a question about "why did that happen" usually
+ * comes after the window is gone.
+ */
+import { appendFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+const logDir = join(homedir(), '.jarvis', 'logs')
+mkdirSync(logDir, { recursive: true })
+const logFile = () => join(logDir, `jarvis-${new Date().toISOString().slice(0, 10)}.log`)
+const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '')
+function toLog(name, chunk) {
+  const stamp = new Date().toTimeString().slice(0, 8)
+  const lines = chunk.toString().split('\n').filter((l) => l.length)
+  try {
+    appendFileSync(logFile(), lines.map((l) => `${stamp} ${name.padEnd(6)} ${strip(l)}\n`).join(''))
+  } catch {
+    /* a log that cannot be written is not worth stopping for */
+  }
+}
+
 function run(name, command, args, colour, env) {
   const label = paint(name, colour)
   const child = spawn(command, args, {
     env: { ...process.env, ...env },
     shell: false,
   })
-  child.stdout.on('data', (d) => process.stdout.write(label(d) + '\n'))
-  child.stderr.on('data', (d) => process.stderr.write(label(d) + '\n'))
+  child.stdout.on('data', (d) => {
+    process.stdout.write(label(d) + '\n')
+    toLog(name, d)
+  })
+  child.stderr.on('data', (d) => {
+    process.stderr.write(label(d) + '\n')
+    toLog(name, d)
+  })
   child.on('exit', (code) => {
     // If either half dies the other is useless, so take the whole thing down
     // rather than leave a half-running app that looks alive but cannot answer.
