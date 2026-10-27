@@ -297,7 +297,7 @@ function maybeBriefing() {
   const today = now.toISOString().slice(0, 10)
   if (state.lastBriefing === today) return
   writeJson(STATE_FILE, { ...state, lastBriefing: today })
-  broadcast({ type: 'nudge', text: 'Gib mir mein Morgen-Briefing.' })
+  broadcast({ type: 'nudge', text: 'Gib mir mein Morgen-Briefing. Prüfe dabei auch, ob neue Anfragen in Gmail liegen, und erfasse sie.' })
   console.log('[daily] morning briefing nudged')
 }
 

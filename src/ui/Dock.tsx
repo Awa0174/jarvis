@@ -20,6 +20,7 @@ const QUICK: Array<{ label: string; text?: string; action?: 'standby' }> = [
   { label: 'Bildschirm', text: 'Was ist gerade auf meinem Bildschirm?' },
   { label: 'PC-Status', text: 'Wie ausgelastet ist mein PC?' },
   { label: 'Kunden', text: 'Wo stehen wir im Vertrieb, und was ist heute fällig?' },
+  { label: 'Anfragen', text: 'Gibt es neue Anfragen in Gmail? Erfasse sie und sag mir, was fehlt.' },
   { label: 'Standby', action: 'standby' },
 ]
 

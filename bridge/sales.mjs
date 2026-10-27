@@ -172,8 +172,57 @@ function open() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       contact_id INTEGER, text TEXT NOT NULL, due TEXT, done INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS inquiries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL, channel TEXT NOT NULL, source_ref TEXT, received TEXT NOT NULL,
+      need TEXT, service TEXT, missing TEXT, timeframe TEXT, budget TEXT, agreed TEXT, next_step TEXT,
+      answered INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS inquiries_source ON inquiries (source_ref) WHERE source_ref IS NOT NULL;
   `)
   return db
+}
+
+const addDays = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
+
+function addTask(contactId, what, due) {
+  const d = open()
+  const res = d.prepare('INSERT INTO tasks (contact_id, text, due, created) VALUES (?, ?, ?, ?)').run(contactId ?? null, String(what), String(due).slice(0, 10), now())
+  if (contactId) d.prepare('UPDATE contacts SET next_step = ?, next_step_at = ?, updated = ? WHERE id = ?').run(String(what), String(due).slice(0, 10), now(), contactId)
+  return Number(res.lastInsertRowid)
+}
+
+function saveDraft(kind, title, content, c) {
+  mkdirSync(DRAFTS, { recursive: true })
+  const slug = norm(title).replace(/ /g, '-').slice(0, 40) || 'entwurf'
+  const file = join(DRAFTS, `${today()}-${norm(kind).replace(/ /g, '-')}-${slug}.md`)
+  writeFileSync(file, `---\nart: ${kind}\ntitel: ${title}\nkontakt: ${c ? `[${c.id}] ${c.company}` : ''}\nstatus: entwurf\nerstellt: ${now()}\n---\n\n${content}\n`, 'utf8')
+  if (c) log(c.id, 'entwurf', `${kind}: ${title}`)
+  return file.split(/[\\/]/).pop()
+}
+
+/** The order of the pipeline, so a status only ever moves forward by itself. */
+const rank = (s) => STATUSES.indexOf(s)
+function advance(c, status) {
+  if (rank(status) > rank(c.status) && !['gewonnen', 'verloren'].includes(c.status)) {
+    open().prepare('UPDATE contacts SET status = ?, updated = ? WHERE id = ?').run(status, now(), c.id)
+  }
+}
+
+function inquirySummary(q) {
+  return [
+    `Anfrage vom ${fmt(q.received)} per ${q.channel}${q.source_ref ? ` (Kennung ${q.source_ref})` : ''}${q.answered ? ', beantwortet' : ', noch unbeantwortet'}`,
+    `  Was gebraucht wird: ${q.need || 'unklar'}`,
+    `  Passende Leistung: ${q.service || 'noch nicht zugeordnet'}`,
+    `  Fehlende Angaben: ${q.missing || 'keine genannt'}`,
+    `  Zeitrahmen: ${q.timeframe || 'unbekannt'} · Budget: ${q.budget || 'unbekannt'}`,
+    `  Bereits vereinbart: ${q.agreed || 'nichts'}`,
+    `  Nächster Schritt: ${q.next_step || 'offen'}`,
+  ].join('\n')
+}
+
+function inquiriesOf(contactId) {
+  return open().prepare('SELECT * FROM inquiries WHERE contact_id = ? ORDER BY received DESC').all(contactId)
 }
 
 const COLUMNS = [
@@ -253,6 +302,7 @@ function detail(c) {
     c.value != null ? `Angebotswert: ${c.value} €` : '',
     c.outcome ? `Ergebnis: ${c.outcome}${c.lost_reason ? ` (${c.lost_reason})` : ''}` : '',
     c.next_step ? `Nächster Schritt: ${c.next_step}${c.next_step_at ? ` bis ${fmt(c.next_step_at)}` : ''}` : '',
+    ...inquiriesOf(c.id).map(inquirySummary),
     tasks.length ? `Offene Aufgaben:\n${tasks.map((t) => `  - [${t.id}] ${t.text}${t.due ? ` (${fmt(t.due)})` : ''}`).join('\n')}` : '',
     acts.length ? `Verlauf:\n${acts.map((a) => `  - ${fmt(a.at)} ${a.kind}: ${a.text}`).join('\n')}` : 'Verlauf: noch nichts.',
   ]
@@ -273,11 +323,18 @@ export function dueSalesItems() {
   const steps = d
     .prepare(`SELECT * FROM contacts WHERE blocked = 0 AND next_step_at IS NOT NULL AND substr(next_step_at, 1, 10) <= ? ORDER BY next_step_at`)
     .all(t)
-  if (!tasks.length && !steps.length) return ''
+  const open_ = d
+    .prepare(
+      `SELECT q.*, c.company FROM inquiries q JOIN contacts c ON c.id = q.contact_id
+       WHERE q.answered = 0 AND c.blocked = 0 ORDER BY q.received`,
+    )
+    .all()
+  if (!tasks.length && !steps.length && !open_.length) return ''
   const lines = []
   for (const x of tasks) lines.push(`${fmt(x.due)}: ${x.text}${x.company ? ` (${x.company})` : ''}`)
   for (const c of steps) lines.push(`${fmt(c.next_step_at)}: ${c.next_step} (${c.company})`)
-  return `Vertrieb heute (fällig oder überfällig):\n${lines.join('\n')}`
+  for (const q of open_) lines.push(`Unbeantwortete Anfrage von ${q.company} (${fmt(q.received)}, ${q.channel})`)
+  return `Vertrieb heute (fällig oder überfällig):\n${[...new Set(lines)].join('\n')}`
 }
 
 // ---------------------------------------------------------------------------
@@ -483,12 +540,8 @@ export function salesServer() {
           const c = r ? findContact(r) : null
           if (r && !c) return text(`Kein Kontakt „${r}“.`)
           if (c?.blocked) return text(`${c.company} ist gesperrt; keine Aufgabe angelegt.`)
-          const d = open()
-          const res = d.prepare('INSERT INTO tasks (contact_id, text, due, created) VALUES (?, ?, ?, ?)').run(c?.id ?? null, String(what), String(due).slice(0, 10), now())
-          if (c) {
-            d.prepare('UPDATE contacts SET next_step = ?, next_step_at = ?, updated = ? WHERE id = ?').run(String(what), String(due).slice(0, 10), now(), c.id)
-          }
-          return text(`Aufgabe [${res.lastInsertRowid}] für ${fmt(due)}${c ? ` bei ${c.company}` : ''}: ${what}`)
+          const id = addTask(c?.id, what, due)
+          return text(`Aufgabe [${id}] für ${fmt(due)}${c ? ` bei ${c.company}` : ''}: ${what}`)
         },
       ),
       tool('task_done', 'Eine Aufgabe abhaken.', { id: z.union([z.number(), z.string()]).describe('Die Aufgabenkennung.') }, async ({ id }) => {
@@ -498,6 +551,7 @@ export function salesServer() {
         d.prepare('UPDATE tasks SET done = 1 WHERE id = ?').run(t.id)
         if (t.contact_id) {
           d.prepare('UPDATE contacts SET next_step = NULL, next_step_at = NULL, updated = ? WHERE id = ? AND next_step = ?').run(now(), t.contact_id, t.text)
+          if (/^anfrage beantworten/i.test(t.text)) d.prepare('UPDATE inquiries SET answered = 1 WHERE contact_id = ?').run(t.contact_id)
           log(t.contact_id, 'erledigt', t.text)
         }
         return text(`Erledigt: ${t.text}`)
@@ -518,19 +572,258 @@ export function salesServer() {
         },
       ),
 
+      // --- inquiries, conversations, offers (stage three) ---
+      tool(
+        'inquiry_add',
+        'Eine eingegangene Anfrage erfassen (Mail, Anruf, Formular, persönlich): legt den Kontakt an oder findet ihn, ' +
+          'setzt Status „anfrage“, erlaubt die Antwort auf dem Kanal der Anfrage, legt die Aufgabe „Anfrage beantworten“ an. ' +
+          'Dieselbe Gmail-Kennung (source_ref) wird nur einmal erfasst. Unklares bleibt unklar, nichts wird ergänzt.',
+        {
+          company: z.string().describe('Betrieb oder, falls unbekannt, Name der Person.'),
+          contact: opt('Ansprechpartner.'),
+          email: opt('E-Mail der Anfrage.'),
+          phone: opt('Telefon.'),
+          website: opt('Website, falls genannt.'),
+          channel: z.enum(['mail', 'telefon', 'formular', 'persönlich']).describe('Über welchen Kanal die Anfrage kam.'),
+          source_ref: opt('Gmail-Thread- oder Nachrichtenkennung; verhindert doppelte Erfassung.'),
+          received: opt('Eingangsdatum JJJJ-MM-TT, Standard heute.'),
+          need: opt('Was gebraucht wird, in den Worten der Anfrage.'),
+          service: opt('Welche eigene Leistung passt; „unklar“, wenn es nicht passt.'),
+          missing: opt('Welche Angaben für ein Angebot fehlen.'),
+          timeframe: opt('Zeitrahmen, falls genannt.'),
+          budget: opt('Budget, falls genannt; sonst leer.'),
+          agreed: opt('Was schon vereinbart wurde.'),
+          next_step: opt('Sinnvoller nächster Schritt.'),
+          reply_due: opt('Bis wann die Antwort raus soll, JJJJ-MM-TT; Standard morgen.'),
+        },
+        async (a) => {
+          const d = open()
+          if (a.source_ref) {
+            const seen = d.prepare('SELECT q.*, c.company FROM inquiries q JOIN contacts c ON c.id = q.contact_id WHERE q.source_ref = ?').get(String(a.source_ref))
+            if (seen) return text(`Schon erfasst bei ${seen.company}:\n${inquirySummary(seen)}`)
+          }
+          let c = duplicateOf(a.company, a.website) ?? (a.email ? d.prepare('SELECT * FROM contacts WHERE lower(email) = lower(?)').get(a.email) : null)
+          const t = now()
+          if (!c) {
+            const r = d
+              .prepare(
+                `INSERT INTO contacts (company, contact, email, phone, website, source, source_date, need, status, created, updated)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'anfrage', ?, ?)`,
+              )
+              .run(a.company, a.contact ?? null, a.email ?? null, a.phone ?? null, a.website ?? null, `Anfrage per ${a.channel}`, t, a.need ?? null, t, t)
+            c = findContact(String(r.lastInsertRowid))
+            log(c.id, 'angelegt', `aus Anfrage per ${a.channel}`)
+          } else {
+            if (c.blocked) return text(`${c.company} ist gesperrt (${c.blocked_reason ?? 'ohne Grund'}). Anfrage nicht erfasst; sag es dem Nutzer.`)
+            const fill = { contact: a.contact, email: a.email, phone: a.phone, website: a.website }
+            for (const [k, v] of Object.entries(fill)) if (v && !c[k]) d.prepare(`UPDATE contacts SET ${k} = ?, updated = ? WHERE id = ?`).run(v, t, c.id)
+            if (a.need) d.prepare('UPDATE contacts SET need = ?, updated = ? WHERE id = ?').run(a.need, t, c.id)
+            advance(c, 'anfrage')
+          }
+          const received = (a.received ?? today()).slice(0, 10)
+          const basis = `eigene Anfrage per ${a.channel} vom ${fmt(received)}`
+          if (a.channel === 'mail' || a.channel === 'formular') d.prepare('UPDATE contacts SET consent_email = 1, consent_basis = ? WHERE id = ?').run(basis, c.id)
+          if (a.channel === 'telefon' || a.channel === 'persönlich') d.prepare('UPDATE contacts SET consent_phone = 1, consent_basis = ? WHERE id = ?').run(basis, c.id)
+          d.prepare(
+            `INSERT INTO inquiries (contact_id, channel, source_ref, received, need, service, missing, timeframe, budget, agreed, next_step, created)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(c.id, a.channel, a.source_ref ?? null, received, a.need ?? null, a.service ?? null, a.missing ?? null, a.timeframe ?? null, a.budget ?? null, a.agreed ?? null, a.next_step ?? null, t)
+          log(c.id, 'anfrage', `${a.channel}: ${a.need ?? '(ohne Inhalt)'}`)
+          const due = (a.reply_due ?? addDays(1)).slice(0, 10)
+          const taskId = addTask(c.id, 'Anfrage beantworten: Entwurf prüfen, dann senden', due)
+          console.log(`[sales] inquiry + [${c.id}] ${c.company} (${a.channel})`)
+          const q = inquiriesOf(c.id)[0]
+          return text(
+            `Erfasst: ${line(findContact(String(c.id)))}\n${inquirySummary(q)}\nAufgabe [${taskId}] bis ${fmt(due)}: Anfrage beantworten.\n` +
+              'Antwort nach vorlage-anfrage-antwort als draft_save (kind „antwort“) entwerfen; gesendet wird nur nach Prüfung durch den Nutzer.',
+          )
+        },
+      ),
+      tool('inquiry_list', 'Alle offenen Anfragen: wer, wann, was fehlt, ob schon beantwortet.', {}, async () => {
+        const rows = open()
+          .prepare(`SELECT q.*, c.company, c.blocked FROM inquiries q JOIN contacts c ON c.id = q.contact_id WHERE c.blocked = 0 ORDER BY q.answered, q.received DESC LIMIT 30`)
+          .all()
+        if (!rows.length) return text('Keine Anfragen erfasst.')
+        return text(rows.map((q) => `[${q.contact_id}] ${q.company}\n${inquirySummary(q)}`).join('\n\n'))
+      }),
+      tool(
+        'inquiry_done',
+        'Eine Anfrage als beantwortet markieren, nachdem die Antwort tatsächlich raus ist (gesendet, angerufen).',
+        { ref, how: z.string().describe('Wie geantwortet wurde, mit Datum.') },
+        async ({ ref: r, how }) => {
+          const c = findContact(r)
+          if (!c) return text(`Kein Kontakt „${r}“.`)
+          const d = open()
+          d.prepare('UPDATE inquiries SET answered = 1 WHERE contact_id = ?').run(c.id)
+          d.prepare("UPDATE tasks SET done = 1 WHERE contact_id = ? AND done = 0 AND text LIKE 'Anfrage beantworten%'").run(c.id)
+          d.prepare("UPDATE contacts SET next_step = NULL, next_step_at = NULL, updated = ? WHERE id = ? AND next_step LIKE 'Anfrage beantworten%'").run(now(), c.id)
+          log(c.id, 'beantwortet', String(how))
+          return text(`${c.company}: Anfrage beantwortet (${how}). Nächsten Schritt mit task_add festlegen.`)
+        },
+      ),
+      tool(
+        'lead_brief',
+        'Gesprächsvorbereitung zu einem Kontakt: wer, woher, bisher, Wünsche, offene Fragen, passende Leistung mit Preis aus dem Profil, ' +
+          'Fragen fürs Gespräch, Gesprächsziel, und was nicht gesagt wird. Vor jedem Anruf oder Besuch.',
+        { ref },
+        async ({ ref: r }) => {
+          const c = findContact(r)
+          if (!c) return text(`Kein Kontakt „${r}“.`)
+          const p = readProfile()
+          const qs = inquiriesOf(c.id)
+          const d = open()
+          const acts = d.prepare('SELECT * FROM activities WHERE contact_id = ? ORDER BY at DESC LIMIT 6').all(c.id)
+          const tasks = d.prepare('SELECT * FROM tasks WHERE contact_id = ? AND done = 0 ORDER BY due').all(c.id)
+          const open_ = [
+            ...(qs[0]?.missing ? [`Fehlende Angaben laut Anfrage: ${qs[0].missing}`] : []),
+            ...(c.gaps ? [`Unsicher aus der Recherche: ${c.gaps}`] : []),
+            ...(!qs.length && !c.need ? ['Bedarf ist noch nicht bekannt, nur vermutet.'] : []),
+          ]
+          const goal =
+            c.status === 'angebot'
+              ? 'Entscheidung zum Angebot, oder was noch fehlt'
+              : c.status === 'gespräch' || c.status === 'anfrage'
+                ? 'Bedarf vollständig klären und einen Termin oder das Angebot vereinbaren'
+                : 'Herausfinden, ob Interesse besteht, und wenn ja, einen Gesprächstermin'
+          const questions = qs.length
+            ? ['Was möchten Sie mit der Seite erreichen?', 'Was funktioniert aktuell nicht wie gewünscht?', 'Bis wann soll die Seite stehen?', 'Gibt es einen Rahmen fürs Budget?']
+            : ['Kommen Anfragen über Ihre Website?', 'Wer kümmert sich heute um die Seite?']
+          const out = [
+            `GESPRÄCHSVORBEREITUNG ${c.company}${c.contact ? `, ${c.contact}` : ''}`,
+            `Wer: ${[c.industry, c.region].filter(Boolean).join(', ') || 'Branche/Ort unbekannt'}${c.phone ? ` · Tel ${c.phone}` : ''}${c.email ? ` · ${c.email}` : ''}${c.website ? ` · ${c.website}` : ''}`,
+            `Woher: ${c.source ?? 'unbekannt'}${c.source_date ? ` (${fmt(c.source_date)})` : ''} · Status ${c.status}${c.score != null ? ` · ${c.score} Punkte` : ''}${c.blocked ? ' · GESPERRT' : ''}`,
+            `Kontakt zulässig: Mail ${c.consent_email ? 'ja' : 'nein'}, Telefon ${c.consent_phone ? 'ja' : 'nein'}${c.consent_basis ? ` (${c.consent_basis})` : ''}`,
+            c.evidence ? `Was ich gesehen habe: ${c.evidence}` : '',
+            `Bisher: ${acts.length ? acts.map((a) => `${fmt(a.at)} ${a.kind}: ${a.text}`).join(' | ') : 'noch kein Kontakt'}`,
+            `Wünsche: ${qs[0]?.need ?? c.need ?? 'unbekannt'}${qs[0]?.timeframe ? ` · Zeitrahmen ${qs[0].timeframe}` : ''}${qs[0]?.budget ? ` · Budget ${qs[0].budget}` : ''}`,
+            qs[0]?.agreed ? `Bereits vereinbart: ${qs[0].agreed}` : '',
+            `Offene Fragen: ${open_.length ? open_.join(' · ') : 'keine notiert'}`,
+            `Passende Leistung (Profil): ${qs[0]?.service ?? p.Angebot ?? '(Profil leer)'}`,
+            `Preis (wörtlich aus dem Profil): ${p.Preis ?? '(nicht festgelegt)'}`,
+            p.Konditionen ? `Konditionen: ${p.Konditionen}` : '',
+            p.Ablauf ? `Ablauf: ${p.Ablauf}` : '',
+            `Fragen fürs Gespräch: ${questions.join(' · ')}`,
+            `Ziel: ${goal}`,
+            tasks.length ? `Offen: ${tasks.map((t) => `${t.text} (${fmt(t.due)})`).join(' · ')}` : '',
+            'Nicht sagen: keine Zeitzusage, kein Probe-Entwurf (das entscheidet der Nutzer selbst), kein Rabatt, keine Referenzen, keine Aussagen über Google-Plätze oder Wettbewerber.',
+            'Danach: conversation_log mit Notizen, Ergebnis und nächstem Schritt.',
+          ]
+          return text(out.filter(Boolean).join('\n'))
+        },
+      ),
+      tool(
+        'conversation_log',
+        'Nach einem Gespräch (Anruf, Besuch, Mailwechsel): Notizen, Ergebnis und nächster Schritt mit Datum. Setzt Status und Aufgabe.',
+        {
+          ref,
+          notes: z.string().describe('Was besprochen wurde, in seinen Worten; nichts ergänzen.'),
+          outcome: z.enum(['interessiert', 'termin', 'angebot_gewünscht', 'später', 'kein_interesse', 'nicht_erreicht']).describe('Ergebnis.'),
+          next_step: opt('Nächster Schritt; bei „später“ und „nicht_erreicht“ nötig.'),
+          due: opt('Datum des nächsten Schritts JJJJ-MM-TT.'),
+          lost_reason: opt('Bei kein_interesse: der Grund in seinen Worten.'),
+        },
+        async ({ ref: r, notes, outcome, next_step, due, lost_reason }) => {
+          const c = findContact(r)
+          if (!c) return text(`Kein Kontakt „${r}“.`)
+          const d = open()
+          log(c.id, 'gespräch', `${outcome}: ${notes}`)
+          const defaults = {
+            interessiert: ['Nachfassen', 3],
+            termin: ['Termin wahrnehmen, vorher lead_brief', 1],
+            angebot_gewünscht: ['Angebot entwerfen (offer_draft)', 1],
+            später: ['Wieder melden', 30],
+            nicht_erreicht: ['Erneut anrufen', 2],
+          }
+          if (outcome === 'kein_interesse') {
+            d.prepare("UPDATE contacts SET status = 'verloren', lost_reason = ?, next_step = NULL, next_step_at = NULL, updated = ? WHERE id = ?").run(lost_reason ?? notes, now(), c.id)
+            d.prepare('UPDATE tasks SET done = 1 WHERE contact_id = ? AND done = 0').run(c.id)
+            return text(`${c.company}: als verloren eingetragen (${lost_reason ?? 'Grund siehe Notiz'}). Wenn „nicht mehr melden“ gesagt wurde: lead_block.`)
+          }
+          if (outcome !== 'nicht_erreicht') advance(c, 'gespräch')
+          const [what, days] = defaults[outcome]
+          const step = next_step ?? what
+          const when = (due ?? addDays(days)).slice(0, 10)
+          const id = addTask(c.id, step, when)
+          return text(`${c.company}: Gespräch notiert (${outcome}). Aufgabe [${id}] bis ${fmt(when)}: ${step}.`)
+        },
+      ),
+      tool(
+        'offer_draft',
+        'Angebotsentwurf nach Gespräch, aus den bestätigten Notizen. Preis, Konditionen und Ablauf kommen wörtlich aus dem Profil; ' +
+          'du lieferst Ausgangslage, Leistungsumfang und was nicht enthalten ist. Rabatte oder Abweichungen nur im Feld approved_extras, ' +
+          'und nur, wenn der Nutzer sie ausdrücklich freigegeben hat. Legt den Entwurf ab, setzt Status „angebot“ und eine Nachfass-Aufgabe.',
+        {
+          ref,
+          situation: z.string().describe('Zwei Sätze: was der Betrieb heute hat und was er will, aus den Notizen.'),
+          scope: z.array(z.string()).describe('Fünf bis acht Punkte, was geliefert wird.'),
+          excluded: z.array(z.string()).optional().describe('Was ausdrücklich nicht enthalten oder zu klären ist.'),
+          value: z.union([z.number(), z.string()]).optional().describe('Angebotssumme für die Erstellung in Euro; Standard 800. Höher nur aus dem Gespräch.'),
+          approved_extras: opt('Vom Nutzer wörtlich freigegebene Abweichung (Rabatt, Sonderkondition). Sonst leer.'),
+          valid_days: z.union([z.number(), z.string()]).optional().describe('Gültigkeit in Tagen, Standard 14.'),
+        },
+        async ({ ref: r, situation, scope, excluded, value, approved_extras, valid_days }) => {
+          const c = findContact(r)
+          if (!c) return text(`Kein Kontakt „${r}“.`)
+          if (c.blocked) return text(`${c.company} ist gesperrt; kein Angebot.`)
+          const p = readProfile()
+          if (!p.Preis || !p.Konditionen) return text('Preis oder Konditionen fehlen im Profil; erst festlegen (profile_set).')
+          const free = [situation, ...(scope ?? []), ...(excluded ?? [])].join(' ')
+          if (!approved_extras && /\b(rabatt|nachlass|kostenlos|gratis|umsonst|prozent|%)\b/i.test(free)) {
+            return text('Da steht ein Rabatt oder etwas Kostenloses drin. Das braucht seine ausdrückliche Freigabe; dann in approved_extras, wörtlich. Sonst weglassen.')
+          }
+          if (/\b(tag|tage|woche|wochen|werktag)/i.test(free) && /\binnerhalb|\bbis\b|\bin\s+\d/i.test(free)) {
+            return text('Da steht eine Zeitzusage drin. Laut Konditionen gibt es keine; Termine werden im Gespräch vereinbart. Bitte ohne Dauer.')
+          }
+          const sum = Math.max(800, Math.round(Number(String(value ?? 800).replace(',', '.')) || 800))
+          const days = Math.max(1, Math.min(60, Number(valid_days) || 14))
+          const validTo = fmt(addDays(days))
+          const body = [
+        `# Angebot für ${c.company}`,
+        '',
+        `${c.contact ? `${c.contact}, ` : ''}vielen Dank für das Gespräch. Hier ist, was ich Ihnen anbiete.`,
+        '',
+        '## Ausgangslage',
+        situation,
+        '',
+        '## Leistung',
+        ...(scope ?? []).map((s) => `- ${s}`),
+        '',
+        '## Nicht enthalten',
+        ...((excluded ?? []).length ? excluded.map((s) => `- ${s}`) : ['- Texte und Fotos, soweit nicht von Ihnen geliefert']),
+        '',
+        '## Ablauf',
+        p.Ablauf ?? 'Gespräch, Entwurf, Freigabe, online.',
+        '',
+        '## Preis',
+        `Erstellung: ${sum} Euro Festpreis, zahlbar bei Fertigstellung.`,
+        `Betreuung und Betrieb: ${p.Konditionen}`,
+        ...(approved_extras ? ['', `Besondere Vereinbarung: ${approved_extras}`] : []),
+        '',
+        '## Gültigkeit und nächster Schritt',
+        `Dieses Angebot gilt bis ${validTo}. Wenn es passt, geben Sie mir kurz Bescheid, dann vereinbaren wir den Termin für das erste Gespräch zu Inhalten und Bildern.`,
+        '',
+        p.Kontakt ? p.Kontakt.replace(/\.\s*Kein Foto.*$/, '.') : '',
+        '',
+        '[Entwurf: vor dem Senden prüfen. Preiszeilen stammen wörtlich aus profil.md.]',
+          ]
+          const name = saveDraft('angebot', `Angebot ${c.company}`, body.join('\n'), c)
+          const d = open()
+          d.prepare('UPDATE contacts SET value = ?, updated = ? WHERE id = ?').run(sum, now(), c.id)
+          advance(c, 'angebot')
+          const id = addTask(c.id, 'Angebot nachfassen', addDays(7))
+          return text(`Angebotsentwurf gespeichert: ${name} (${sum} Euro, gültig bis ${validTo}). Status angebot, Nachfassen als Aufgabe [${id}]. Wartet auf seine Prüfung; nichts gesendet.`)
+        },
+      ),
+
       // --- drafts ---
       tool(
         'draft_save',
         'Einen Entwurf ablegen, zur Prüfung durch den Nutzer: Beitrag, Antwort, Angebot, Fallbeispiel. Entwürfe werden nie von selbst verschickt oder veröffentlicht.',
         { kind: z.string().describe('beitrag, antwort, angebot, seite, newsletter, fallbeispiel …'), title: z.string().describe('Titel.'), content: z.string().describe('Der Text.'), ref: opt('Kontakt, falls zugehörig.') },
         async ({ kind, title, content, ref: r }) => {
-          mkdirSync(DRAFTS, { recursive: true })
           const c = r ? findContact(r) : null
-          const slug = norm(title).replace(/ /g, '-').slice(0, 40) || 'entwurf'
-          const file = join(DRAFTS, `${today()}-${norm(kind).replace(/ /g, '-')}-${slug}.md`)
-          writeFileSync(file, `---\nart: ${kind}\ntitel: ${title}\nkontakt: ${c ? `[${c.id}] ${c.company}` : ''}\nstatus: entwurf\nerstellt: ${now()}\n---\n\n${content}\n`, 'utf8')
-          if (c) log(c.id, 'entwurf', `${kind}: ${title}`)
-          return text(`Entwurf gespeichert: ${file.split(/[\\/]/).pop()}. Wartet auf Prüfung.`)
+          const name = saveDraft(kind, title, content, c)
+          return text(`Entwurf gespeichert: ${name}. Wartet auf Prüfung.`)
         },
       ),
       tool('draft_list', 'Die abgelegten Entwürfe, neueste zuerst.', {}, async () => {
