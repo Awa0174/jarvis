@@ -59,7 +59,23 @@ const norm = (s) =>
 // Profile
 // ---------------------------------------------------------------------------
 
-const PROFILE_FIELDS = ['Angebot', 'Zielgruppe', 'Problem', 'Ergebnis', 'Preis', 'Nachweise', 'Gebiet', 'Ton', 'Grenzen', 'Kapazität']
+const PROFILE_FIELDS = [
+  'Angebot',
+  'Zielgruppe',
+  'Problem',
+  'Ergebnis',
+  'Preis',
+  'Konditionen',
+  'Nachweise',
+  'Probe-Entwurf',
+  'Gebiet',
+  'Ton',
+  'Grenzen',
+  'Kapazität',
+  'Ablauf',
+  'Kontakt',
+  'Impressum',
+]
 
 function readProfile() {
   mkdirSync(BUSINESS_DIR, { recursive: true })
