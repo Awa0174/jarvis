@@ -120,8 +120,10 @@ const HEAVY =
 const OPUS_WORDS =
   /\b(code|skript|script|programm(ier)?|lua|python|javascript|typescript|java|docker|ssh|server|log|logs|fehler|error|bug|absturz|crash|exception|traceback|stack|debug|konfig|config|datenbank|sql|api|deploy|install)\w*/i
 /** The fable tier: the genuinely hard, open-ended ones. */
+// 'entwurf' and 'design' are not on this list on purpose: "lege es als
+// Entwurf ab" sent an offer page to the dearest model for no reason.
 const FABLE_WORDS =
-  /\b(architektur|strategie|konzept|roadmap|entwurf|design|abwäg|entscheid|komplex|gründlich|ausführlich|tiefgehend|beweis|forschung|analysiere? (?:das|den|die) ganze)\w*/i
+  /\b(architektur|strategie|roadmap|abwäg|entscheid|komplex|gründlich|ausführlich|tiefgehend|beweis|forschung|analysiere? (?:das|den|die) ganze)\w*/i
 
 /**
  * The tier a question gets when no rule applied and the voter is off:
